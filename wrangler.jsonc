@@ -1,0 +1,9 @@
+﻿{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "the-blue",
+  "compatibility_date": "2026-09-11",
+  "assets": {
+    "directory": "./dist-static",
+    "not_found_handling": "single-page-application"
+  }
+}
