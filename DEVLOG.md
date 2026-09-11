@@ -35,7 +35,7 @@ This document tracks technical decisions, architecture milestones, and deploymen
     {
       "$schema": "node_modules/wrangler/config-schema.json",
       "name": "the-blue",
-      "compatibility_date": "2026-09-11",
+      "compatibility_date": "2026-05-22",
       "assets": {
         "directory": "./dist-static",
         "not_found_handling": "single-page-application"
@@ -53,3 +53,24 @@ This document tracks technical decisions, architecture milestones, and deploymen
 - Established branch conventions:
   - `main`: Production-ready branch connected to Cloudflare CI/CD for auto-deployment.
   - `feature/*`: Working branches for experimental systems and active feature development (e.g. `feature/weather-system`).
+
+---
+
+## [2026-09-11] — Local Development Worker Compatibility Fix
+
+### 1. Issue Diagnosis
+- **Command:** `npm run dev` (`vinext dev`)
+- **Error:**
+  ```text
+  service core:user:the-blue: This Worker requires compatibility date "2026-09-11", but the newest date supported by this server binary is "2026-05-22".
+  MiniflareCoreError [ERR_RUNTIME_FAILURE]: The Workers runtime failed to start.
+  ```
+- **Root Cause:** `wrangler.jsonc` had its `compatibility_date` set to `"2026-09-11"`. The local Miniflare / `workerd` runtime bundled in the project's installed `@cloudflare/vite-plugin` and `wrangler` dependencies only supports compatibility dates up to `"2026-05-22"`. In Cloudflare Workers, configuring a date newer than what the local binary supports causes `workerd` to immediately halt execution.
+
+### 2. Resolution & Verification
+- **Changes:** Updated `compatibility_date` in `wrangler.jsonc` to `"2026-05-22"`.
+- **Verification:** Ran `npm run dev` and verified the Vite development server boots cleanly:
+  - Local server accessible at `http://localhost:3000/`.
+  - Debug server accessible at `http://localhost:3000/__debug`.
+  - RSC/SSR environment and client bundles optimized and loaded without runtime errors.
+
