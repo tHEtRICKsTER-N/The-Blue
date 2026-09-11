@@ -5,7 +5,7 @@ import { floorHeight, regionSeed, seededRandom, oceanMaterial, swayMaterial } fr
 const SIZE=128,RADIUS=2;
 export class StreamingOcean {
   constructor(world){
-    this.world=world;this.scene=world.scene;this.chunks=new Map();this.pool=[];this.pending=[];this.cell='';this.quality='high';this.center=new T.Vector2();this.bounds={value:new T.Vector4(-256,384,-256,384)};
+    this.world=world;this.scene=world.scene;this.chunks=new Map();this.pool=[];this.pending=[];this.cell='';this.quality='high';this.viewDistance='high';this.center=new T.Vector2();this.bounds={value:new T.Vector4(-256,384,-256,384)};
     this.terrainMaterial=oceanMaterial('#ffffff',{vertexColors:true});
     this.shared={rock:world.rockG,coral:world.branchGeometry(),grass:world.grass.geometry};
     const star=new T.Shape();for(let i=0;i<10;i++){const a=i*Math.PI/5,r=i%2?.16:.5;const x=Math.cos(a)*r,y=Math.sin(a)*r;if(i===0)star.moveTo(x,y);else star.lineTo(x,y);}star.closePath();const starG=new T.ExtrudeGeometry(star,{depth:.07,bevelEnabled:true,bevelSize:.03,bevelThickness:.025,bevelSegments:1,steps:1});starG.rotateX(-Math.PI/2);this.shared.star=starG;
@@ -30,7 +30,7 @@ export class StreamingOcean {
     const x=Math.floor(player.x/SIZE),z=Math.floor(player.z/SIZE),key=`${x},${z}`;
     if(key!==this.cell){this.cell=key;this.center.set(x,z);const wanted=new Set();this.pending=[];for(let dx=-RADIUS;dx<=RADIUS;dx++)for(let dz=-RADIUS;dz<=RADIUS;dz++){const k=`${x+dx},${z+dz}`;wanted.add(k);if(!this.chunks.has(k))this.pending.push({x:x+dx,z:z+dz,k,d:dx*dx+dz*dz});}for(const [k,c] of this.chunks)if(!wanted.has(k)){this.scene.remove(c.root);this.pool.push(c);this.chunks.delete(k);}this.pending.sort((a,b)=>a.d-b.d);this.bounds.value.set((x-RADIUS)*SIZE,(x+RADIUS+1)*SIZE,(z-RADIUS)*SIZE,(z+RADIUS+1)*SIZE);this.paintTerrain(this.far,(x+.5)*SIZE,(z+.5)*SIZE);this.rebuildObstacles();}
     const budget=immediate?25:1;for(let i=0;i<budget&&this.pending.length;i++){const job=this.pending.shift(),chunk=this.pool.pop()||this.createChunk();this.fill(chunk,job.x,job.z);this.chunks.set(job.k,chunk);this.rebuildObstacles();}
-    for(const c of this.chunks.values()){const distance=Math.hypot((c.x+.5)*SIZE-player.x,(c.z+.5)*SIZE-player.z);for(const [kind,m] of Object.entries(c.meshes)){m.visible=distance<(this.quality==='low'?150:235);m.count=Math.floor(m.userData.fullCount*(this.quality==='low'&&kind!=='rock'?.5:1));}}
+    for(const c of this.chunks.values()){const distance=Math.hypot((c.x+.5)*SIZE-player.x,(c.z+.5)*SIZE-player.z),limit=this.viewDistance==='low'?150:this.viewDistance==='medium'?210:this.viewDistance==='ultra'?330:260;for(const [kind,m] of Object.entries(c.meshes)){m.visible=distance<limit;m.count=Math.floor(m.userData.fullCount*(this.quality==='low'&&kind!=='rock'?.5:1));}}
   }
   biomeAt(x,z){if(floorHeight(x,z)>20)return 'Island Shore';const seed=regionSeed(Math.floor(x/SIZE),Math.floor(z/SIZE));return ['Coral Highlands','Anemone Meadows','Sapphire Basin','Sea Fan Gardens','Ribbon Kelp Forest','Sponge Terraces'][seed%6];}
   dispose(){for(const c of [...this.chunks.values(),...this.pool]){this.scene.remove(c.root);c.terrain.geometry.dispose();Object.values(c.meshes).forEach(m=>m.dispose());}this.chunks.clear();this.pool=[];this.far.geometry.dispose();this.far.material.dispose();this.terrainMaterial.dispose();for(const [key,g] of Object.entries(this.shared))if(key!=='rock'&&key!=='grass')g.dispose();for(const [key,m] of Object.entries(this.materials))if(key!=='rock')m.dispose();}

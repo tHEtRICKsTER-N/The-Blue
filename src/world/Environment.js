@@ -1,56 +1,149 @@
 import * as T from 'three';
-import { time, waveStrength, seededRandom } from './materials.js';
+import { time, waveStrength, seededRandom, SEA_LEVEL } from './materials.js';
 
+// Presets are now anchors on a continuous 24 hour clock rather than fixed palettes.
 export const times = {
-  dawn: ['Dawn', '#e5ac9e', '#526eac', .40, .08],
-  morning: ['Morning', '#c3dfdf', '#609bd0', .85, .35],
-  day: ['Day', '#b8d4d6', '#296bad', 1, .75],
-  afternoon: ['Afternoon', '#dfd8b4', '#4d89b4', .90, .48],
-  evening: ['Evening', '#f4a46d', '#776a9c', .55, .13],
-  dusk: ['Dusk', '#997b9d', '#293656', .20, .02],
-  night: ['Night', '#16294a', '#03091e', .055, .42],
+  dawn: ['Dawn', 5.6],
+  morning: ['Morning', 8.5],
+  day: ['Day', 12.5],
+  afternoon: ['Afternoon', 15.5],
+  evening: ['Evening', 18.2],
+  dusk: ['Dusk', 19.6],
+  night: ['Night', 23.5],
 };
+// hour, horizon, zenith, light. Sampled and interpolated, so any hour in between is valid.
+const palette = [
+  [0, '#12203f', '#03071a', .045],
+  [4.4, '#1b2c4b', '#060e26', .06],
+  [5.6, '#e8b0a0', '#5470ae', .38],
+  [7.2, '#dcccb8', '#5b88c6', .72],
+  [8.5, '#c3dfdf', '#609bd0', .86],
+  [12.5, '#b8d4d6', '#296bad', 1],
+  [15.5, '#dfd8b4', '#4d89b4', .90],
+  [18.2, '#f4a46d', '#776a9c', .55],
+  [19.6, '#9a7d9e', '#2a3757', .18],
+  [20.8, '#2e3757', '#0b1132', .07],
+  [24, '#12203f', '#03071a', .045],
+].map(([hour,horizon,zenith,light])=>({hour,horizon:new T.Color(horizon),zenith:new T.Color(zenith),light}));
+
+// label, light, cloudCutoff (lower = more cover), fog, waves, rain, wind, haze
 export const weathers = {
-  clear: ['Clear', 1, .52, .0012, 1, 0],
-  cloudy: ['Overcast', .60, .22, .002, 1.35, 0],
-  mist: ['Sea mist', .70, .39, .013, .65, 0],
-  rain: ['Rain', .43, .18, .004, 1.8, 1],
-  storm: ['Storm', .24, .12, .007, 2.5, 1],
+  clear: ['Clear', 1, .52, .0012, 1, 0, .14, 0],
+  cloudy: ['Overcast', .60, .22, .0022, 1.35, 0, .30, .18],
+  mist: ['Sea mist', .70, .40, .0110, .65, 0, .08, .85],
+  rain: ['Rain', .43, .18, .0042, 1.8, 1, .45, .42],
+  storm: ['Storm', .24, .12, .0075, 2.5, 1.5, .95, .60],
 };
 export const skinTones = ['#f2d3b1','#d7a477','#b77c55','#925b3e','#683e2d','#40271f'];
+
+const RAIN_SEGMENTS=3000,RAIN_SPAN=78,RAIN_HEIGHT=52;
+const lerp=T.MathUtils.lerp;
 
 // One fixed GPU rain pool follows the camera; changing presets allocates no geometry.
 export class Environment {
   constructor(scene){
-    this.weather='clear';this.period='day';this.light=1;
-    const random=seededRandom(712),positions=new Float32Array(1800*6);
-    for(let i=0;i<1800;i++){const x=(random()-.5)*65,y=random()*40,z=(random()-.5)*65;positions.set([x,y,z,x+.14,y-.85,z],i*6);}
-    const geometry=new T.BufferGeometry();geometry.setAttribute('position',new T.BufferAttribute(positions,3));
-    this.rain=new T.LineSegments(geometry,new T.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{uTime:time,uOpacity:{value:.25}},vertexShader:`uniform float uTime;void main(){vec3 p=position;p.y=mod(p.y-uTime*19.,40.)-10.;p.x+=sin(uTime*.4)*2.;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}`,fragmentShader:`uniform float uOpacity;void main(){gl_FragColor=vec4(.65,.8,.9,uOpacity);}`}));
+    this.targetWeather='clear';this.hour=times.day[1];this.light=1;this.rainLevel=0;this.weatherDensity=1;
+    this.cycleSpeed=0;this.flash=0;this.strikeTimer=6;this.strikeBurst=0;
+    // Live weather state, crossfaded as a whole so fog, wind, waves and cover never step.
+    this.state=weathers.clear.slice(1).map(Number);
+    const random=seededRandom(712),positions=new Float32Array(RAIN_SEGMENTS*6),tips=new Float32Array(RAIN_SEGMENTS*2);
+    for(let i=0;i<RAIN_SEGMENTS;i++){const x=(random()-.5)*RAIN_SPAN,y=random()*RAIN_HEIGHT,z=(random()-.5)*RAIN_SPAN;positions.set([x,y,z,x,y,z],i*6);tips[i*2+1]=1;}
+    const geometry=new T.BufferGeometry();geometry.setAttribute('position',new T.BufferAttribute(positions,3));geometry.setAttribute('aTip',new T.BufferAttribute(tips,1));
+    this.rain=new T.LineSegments(geometry,new T.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{
+      uTime:time,uOpacity:{value:0},uWind:{value:.14},uLength:{value:.85},uSpeed:{value:19},uBase:{value:0},uSea:{value:SEA_LEVEL},
+    },vertexShader:`uniform float uTime;uniform float uWind;uniform float uLength;uniform float uSpeed;uniform float uBase;uniform float uSea;
+attribute float aTip;varying float vFade;
+void main(){
+  vec3 p=position;
+  float head=mod(position.y-uTime*uSpeed,${RAIN_HEIGHT}.)-${(RAIN_HEIGHT*.28).toFixed(1)};
+  p.y=head-aTip*uLength;
+  float drift=uTime*uWind*2.6;
+  p.x+=sin(uTime*.4+position.z*.05)*1.6+aTip*uWind+drift*.25;
+  p.z+=cos(uTime*.33+position.x*.05)*1.1+aTip*uWind*.4;
+  vec4 mv=modelViewMatrix*vec4(p,1.);
+  // Cut the column at the water line and ease it in past the near plane so streaks never pop.
+  vFade=smoothstep(-.3,2.4,uBase+p.y-uSea)*smoothstep(1.2,5.,-mv.z)*(1.-smoothstep(${(RAIN_SPAN*.42).toFixed(1)},${(RAIN_SPAN*.6).toFixed(1)},-mv.z));
+  gl_Position=projectionMatrix*mv;
+}`,fragmentShader:`uniform float uOpacity;varying float vFade;void main(){float a=uOpacity*vFade;if(a<=.002)discard;gl_FragColor=vec4(.66,.81,.91,a);}`}));
     this.rain.frustumCulled=false;this.rain.visible=false;scene.add(this.rain);
     this.horizon=new T.Color();this.zenith=new T.Color();this.water=new T.Color();this.tint=new T.Color();
+    this.direction=new T.Vector3();this.moonDirection=new T.Vector3();this.sunColor=new T.Color();this.sample={horizon:new T.Color(),zenith:new T.Color(),light:1};
+  }
+  get weather(){return this.targetWeather;}
+  set weather(key){if(weathers[key])this.targetWeather=key;}
+  // Nearest preset name, so callers that think in named periods still work.
+  get period(){let best='day',distance=99;for(const [key,value] of Object.entries(times)){const d=Math.min(Math.abs(this.hour-value[1]),24-Math.abs(this.hour-value[1]));if(d<distance){distance=d;best=key;}}return best;}
+  set period(key){if(times[key])this.hour=times[key][1];}
+  setHour(hour){this.hour=((hour%24)+24)%24;}
+  samplePalette(hour){
+    let a=palette[0],b=palette[palette.length-1];
+    for(let i=0;i<palette.length-1;i++)if(hour>=palette[i].hour&&hour<=palette[i+1].hour){a=palette[i];b=palette[i+1];break;}
+    const span=Math.max(.0001,b.hour-a.hour),k=T.MathUtils.smoothstep((hour-a.hour)/span,0,1);
+    this.sample.horizon.copy(a.horizon).lerp(b.horizon,k);this.sample.zenith.copy(a.zenith).lerp(b.zenith,k);this.sample.light=lerp(a.light,b.light,k);
+    return this.sample;
   }
   update(game,dt,dark,u){
-    const period=times[this.period],weather=weathers[this.weather],blend=1-Math.exp(-dt*3);
-    this.light=T.MathUtils.lerp(this.light,period[3]*weather[1],blend);
-    waveStrength.value=T.MathUtils.lerp(waveStrength.value,weather[4],blend);
+    if(this.cycleSpeed>0)this.hour=(this.hour+dt*this.cycleSpeed/60)%24;
+    const target=weathers[this.targetWeather]||weathers.clear,blend=1-Math.exp(-dt*1.6);
+    for(let i=0;i<this.state.length;i++)this.state[i]=lerp(this.state[i],Number(target[i+1]),blend);
+    const [wLight,wCloud,wFog,wWaves,wRain,wWind,wHaze]=this.state;
+    const sky=this.samplePalette(this.hour),fast=1-Math.exp(-dt*3);
+
+    // Sun and moon ride a real arc, so low light and long shadows happen on their own.
+    const angle=(this.hour-12)/12*Math.PI,moonAngle=angle+Math.PI+.35;
+    this.direction.set(-Math.sin(angle)*.95,Math.cos(angle)*.92,-.42).normalize();
+    this.moonDirection.set(-Math.sin(moonAngle)*.93,Math.cos(moonAngle)*.88,.36).normalize();
+    const elevation=this.direction.y,night=1-T.MathUtils.smoothstep(elevation,-.13,.06);
+
+    this.light=lerp(this.light,sky.light*wLight,fast);
+    waveStrength.value=lerp(waveStrength.value,wWaves,fast);
+
     const uniforms=game.world.surfaceWorld.uniforms;
-    this.horizon.set(period[1]);this.zenith.set(period[2]);this.tint.set('#627582');if(this.period==='night')this.tint.multiplyScalar(.12);
-    this.horizon.lerp(this.tint,(1-weather[1])*.5);this.zenith.lerp(this.tint,(1-weather[1])*.6);
-    uniforms.uHorizon.value.lerp(this.horizon,blend);uniforms.uZenith.value.lerp(this.zenith,blend);
-    this.direction ||= new T.Vector3();
-    this.direction.set(this.period==='evening'||this.period==='dusk'?-.6:.38,period[4],-.52).normalize();uniforms.uSun.value.lerp(this.direction,blend).normalize();
-    uniforms.uNight.value=T.MathUtils.lerp(uniforms.uNight.value,this.period==='night'?1:this.period==='dusk'?.25:0,blend);
-    const night=uniforms.uNight.value;game.effects.plankton.material.uniforms.uNight.value=night;
-    uniforms.uLight.value=this.light;uniforms.uCloud.value=T.MathUtils.lerp(uniforms.uCloud.value,weather[2],blend);
-    game.sun.position.copy(uniforms.uSun.value).multiplyScalar(100);game.sun.color.set(this.period==='night'?'#8daaff':period[1]);
+    this.horizon.copy(sky.horizon);this.zenith.copy(sky.zenith);this.tint.set('#627582').multiplyScalar(lerp(1,.14,night));
+    this.horizon.lerp(this.tint,(1-wLight)*.5);this.zenith.lerp(this.tint,(1-wLight)*.6);
+    uniforms.uHorizon.value.lerp(this.horizon,fast);uniforms.uZenith.value.lerp(this.zenith,fast);
+    uniforms.uSun.value.lerp(this.direction,fast).normalize();uniforms.uMoon.value.lerp(this.moonDirection,fast).normalize();
+    uniforms.uNight.value=lerp(uniforms.uNight.value,night,fast);
+    uniforms.uLight.value=this.light;uniforms.uCloud.value=wCloud;uniforms.uHaze.value=wHaze;
+
+    // Storms build a charge, then discharge as a short double flash.
+    this.strikeTimer-=dt;
+    if(this.targetWeather==='storm'&&this.rainLevel>.2&&this.strikeTimer<=0){this.strikeTimer=2.4+Math.random()*7;this.strikeBurst=2;}
+    if(this.strikeBurst>0&&this.flash<.05){this.flash=this.strikeBurst===2?1:.55;this.strikeBurst--;}
+    this.flash=Math.max(0,this.flash-dt*(this.flash>.5?7:3.6));
+    const flash=this.flash*this.flash*(1-u);
+    uniforms.uFlash.value=flash;
+
+    const lit=uniforms.uNight.value;game.effects.plankton.material.uniforms.uNight.value=lit;
+    game.sun.position.copy(uniforms.uSun.value).multiplyScalar(100);
+    this.sunColor.copy(sky.horizon).lerp(this.tint.set('#fff3da'),.4).lerp(this.tint.set('#8daaff'),lit);
+    game.sun.color.copy(this.sunColor);
+
     this.water.set('#238d99').multiplyScalar(.15+this.light*.85).lerp(this.tint.set('#020d25'),dark).lerp(uniforms.uHorizon.value,1-u);
     uniforms.uUnderColor.value.copy(this.water);game.scene.background.copy(this.water);game.scene.fog.color.copy(this.water);
-    game.scene.fog.density=T.MathUtils.lerp(weather[3],.011+dark*.026,u);
-    game.hemi.intensity=(.16+2.44*this.light+night*.20)*(1-dark*.93);game.sun.intensity=3.6*this.light*(1-dark*.98);game.fill.color.set(night>.5?'#3d90bd':'#6bb5d7');game.fill.intensity=(.08+.57*this.light+night*.12)*(1-dark*.96);
-    game.effects.rayMaterial.uniforms.uOpacity.value=(1-dark*.96)*u*this.light;
-    game.effects.sunSprite.material.opacity=this.light;game.effects.sunSprite.material.color.copy(game.sun.color);
-    this.rain.position.copy(game.camera.position);this.rain.visible=!!weather[5]&&u<.05;
-    this.rain.geometry.setDrawRange(0,game.quality==='low'?1200:3600);this.rain.material.uniforms.uOpacity.value=.15+.25*this.light;
+    game.scene.fog.density=lerp(wFog,.011+dark*.026,u);
+
+    const skyLight=(1-dark*.93);
+    game.hemi.intensity=(.16+2.44*this.light+lit*.20)*skyLight+flash*1.6;
+    game.sun.intensity=3.6*this.light*(1-dark*.98)+flash*2.4;
+    game.fill.color.set(lit>.5?'#3d90bd':'#6bb5d7');game.fill.intensity=(.08+.57*this.light+lit*.12)*(1-dark*.96);
+    game.effects.rayMaterial.uniforms.uOpacity.value=(1-dark*.96)*u*this.light*Math.max(0,elevation+.1);
+    game.effects.setFlash(flash);
+    // The underwater sun disc tracks the real sun instead of sitting at a fixed point.
+    const sprite=game.effects.sunSprite;
+    sprite.position.copy(game.camera.position).addScaledVector(uniforms.uSun.value,110);sprite.position.y=Math.max(SEA_LEVEL+8,sprite.position.y);
+    sprite.material.opacity=this.light*T.MathUtils.smoothstep(elevation,-.05,.15);sprite.material.color.copy(game.sun.color);
+
+    const rainTarget=wRain*(1-u)*this.weatherDensity;this.rainLevel=lerp(this.rainLevel,rainTarget,1-Math.exp(-dt*1.8));
+    uniforms.uRain.value=Math.min(1,this.rainLevel*.8);
+    this.rain.position.copy(game.camera.position);this.rain.visible=this.rainLevel>.002;
+    const material=this.rain.material.uniforms;
+    material.uBase.value=this.rain.position.y;
+    const density=game.particleDensity==='low'?.35:game.particleDensity==='medium'?.65:1;
+    this.rain.geometry.setDrawRange(0,Math.floor(RAIN_SEGMENTS*density*Math.min(1,this.weatherDensity))*2);
+    material.uOpacity.value=Math.min(1,this.rainLevel)*(.14+.22*this.light);
+    material.uWind.value=lerp(material.uWind.value,wWind,fast);
+    material.uLength.value=lerp(material.uLength.value,.7+wWind*.9,fast);
+    material.uSpeed.value=lerp(material.uSpeed.value,17+wWind*16,fast);
   }
 }
