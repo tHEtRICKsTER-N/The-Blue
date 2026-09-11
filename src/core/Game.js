@@ -1,0 +1,67 @@
+import { Dialogue } from './Dialogue.js';
+import * as T from 'three';
+import { destinations } from '../world/ExplorationSites.js';
+import { floorHeight } from '../world/materials.js';
+import { Environment, times, weathers, skinTones } from '../world/Environment.js';
+import { OceanWorld } from '../world/OceanWorld.js';
+import { MarineLife } from '../creatures/MarineLife.js';
+import { DiverController } from '../player/DiverController.js';
+import { Atmosphere } from '../effects/Atmosphere.js';
+import { time, depthLight, waterHeight } from '../world/materials.js';
+import { AudioManager } from '../audio/AudioManager.js';
+import { registerExpeditionTools } from './webmcp.js';
+
+export class Game {
+  constructor(mount,callbacks){
+    this.mount=mount;this.callbacks=callbacks;this.disposed=false;this.elapsed=0;this.last=performance.now();this.readingTimer=0;this.discovered=new Set();this.discoveryQueue=[];this.discoveryDelay=0;this.quality='high';this.fps=60;this.frames=0;this.performanceTime=0;
+    this.scene=new T.Scene();this.scene.background=new T.Color('#167681');this.scene.fog=new T.FogExp2('#167681',.016);
+    this.camera=new T.PerspectiveCamera(68,mount.clientWidth/mount.clientHeight,.06,5000);this.scene.add(this.camera);
+    this.renderer=new T.WebGLRenderer({antialias:false,powerPreference:'high-performance'});this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));this.renderer.setSize(mount.clientWidth,mount.clientHeight);this.renderer.toneMapping=T.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.15;this.renderer.outputColorSpace=T.SRGBColorSpace;mount.appendChild(this.renderer.domElement);
+    this.hemi=new T.HemisphereLight('#b3f0df','#334a4c',2.6);this.scene.add(this.hemi);
+    this.sun=new T.DirectionalLight('#fff0d4',3.2);this.sun.position.set(38,58,-52);this.scene.add(this.sun);
+    this.fill=new T.DirectionalLight('#6bb5d7',.65);this.fill.position.set(-20,12,25);this.scene.add(this.fill);
+    this.world=new OceanWorld(this.scene);this.world.addLandmarks();this.marine=new MarineLife(this.scene,this.world.obstacles);this.effects=new Atmosphere(this.renderer,this.scene,this.camera);this.audio=new AudioManager();
+    this.diver=new DiverController(this.camera,this.renderer.domElement,this.world,value=>{callbacks.onPause(value);if(value)this.audio.pause();},()=>this.toggleFlashlight(),()=>this.report());
+    this.dialogue=new Dialogue(callbacks.onDialogue);this.environment=new Environment(this.scene);this.character='male';this.skin=skinTones[2];
+    this.effects.setDiverAnchor(this.diver.viewAnchor);
+    this.resize=()=>{const w=mount.clientWidth,h=mount.clientHeight;this.camera.aspect=w/h;this.camera.updateProjectionMatrix();this.renderer.setSize(w,h);this.effects.resize(w,h);};window.addEventListener('resize',this.resize);this.resize();
+    this.contextLost=e=>{e.preventDefault();this.pause();};this.contextRestored=()=>location.reload();this.renderer.domElement.addEventListener('webglcontextlost',this.contextLost);this.renderer.domElement.addEventListener('webglcontextrestored',this.contextRestored);
+    if(import.meta.env.DEV)window.__abyssDebug=this;this.unregisterTools=registerExpeditionTools(this);this.loop=this.loop.bind(this);this.frame=requestAnimationFrame(this.loop);
+    requestAnimationFrame(()=>{if(!this.disposed)callbacks.onReady();});
+  }
+  start(){this.dialogue.trigger('welcome');this.diver.start();this.audio.start();this.audio.setMuted(!!this.muted);this.callbacks.onPause(false);}
+  pause(){this.diver.pause();this.audio.pause();this.callbacks.onPause(true);}
+  returnToReef(){this.diver.reset();}
+  setCameraMode(mode){this.diver.setCameraMode(mode);}
+  toggleCamera(){this.diver.toggleCamera();}
+  toggleFlashlight(){this.effects.toggleFlashlight();this.report();}
+  visitSite(name){const site=destinations.find(s=>s.name===name);if(!site)return;this.discoveryQueue=[];this.discoveryDelay=0;const d=this.diver;d.position.set(site.x,site.name==='Palm Cay Anchorage'?waterHeight(site.x,site.z+18,this.elapsed)+.35:Math.min(25,floorHeight(site.x,site.z+18)+9),site.z+18);d.velocity.set(0,0,0);d.yaw=d.targetYaw=site.name==='Palm Cay Anchorage'?Math.PI/2:0;d.pitch=d.targetPitch=-.1;d.rig.distance=0;this.camera.position.copy(d.position);this.report();}
+  setDialogueEnabled(value){this.dialogue.setEnabled(value);}
+  setWeather(value){if(weathers[value])this.environment.weather=value;}
+  setTime(value){if(times[value])this.environment.period=value;}
+  setAppearance(character,skin){if(!['male','female'].includes(character)||!skinTones.includes(skin))return;this.character=character;this.skin=skin;this.diver.avatar.setAppearance(character,skin);}
+  setMuted(value){this.muted=value;this.audio?.setMuted(value);}
+  setQuality(q){this.quality=q;this.world.stream.quality=q;const ratio={low:.7,medium:1,high:1.5}[q]??1;this.renderer.setPixelRatio(Math.min(devicePixelRatio,ratio));this.effects.composer.setPixelRatio(Math.min(devicePixelRatio,ratio));this.effects.bloom.enabled=q!=='low';this.effects.plankton.geometry.setDrawRange(0,q==='low'?900:q==='medium'?1700:2800);this.world.grass.count=q==='low'?450:q==='medium'?750:1100;this.resize();}
+  discover(name,kind){if(!this.discovered.has(name)){this.discovered.add(name);this.dialogue.discover(name,kind);this.discoveryQueue.push({name,kind});}}
+  report(){const p=this.diver.position;let closest=this.world.stream.biomeAt(p.x,p.z),distance=Infinity;for(const l of this.world.landmarks){const d=l.p.distanceTo(p);if(d<l.radius&&d<distance){closest=l.name;distance=d;}}if(p.y<-37&&distance===Infinity)closest='Twilight Depths';const surface=p.y>waterHeight(p.x,p.z,this.elapsed)-.15;if(surface&&distance===Infinity)closest='Open Ocean · Surface';this.location=closest;this.callbacks.onReading({depth:Math.max(0,waterHeight(p.x,p.z,this.elapsed)-p.y),heading:((T.MathUtils.radToDeg(-this.diver.yaw)%360)+360)%360,location:closest,fps:this.fps,flashlight:this.effects.flashlight.intensity>0,cameraMode:this.diver.rig.mode,quality:this.quality,surface,distance:Math.hypot(p.x,p.z-26)});}
+  loop(now){
+    if(this.disposed)return;const realDt=(now-this.last)/1000,dt=Math.min(.05,realDt);this.last=now;const running=!this.diver.started||this.diver.active;if(running)this.elapsed+=dt;time.value=this.elapsed;
+    this.world.stream.update(this.diver.position);this.diver.update(dt,this.elapsed);const p=this.diver.position;const depth=T.MathUtils.smoothstep(27-this.camera.position.y,24,105);
+    const cave=Math.abs(p.x+42)<7&&p.z<-104&&p.z>-131&&p.y<-13?1:0;this.caveLight=T.MathUtils.lerp(this.caveLight||0,cave,1-Math.exp(-dt*2));const dark=Math.max(depth,this.caveLight*.9);
+    const cp=this.camera.position,waterline=waterHeight(cp.x,cp.z,this.elapsed);this.underwater=1-T.MathUtils.smoothstep(cp.y-waterline,-.15,.12);
+    const u=this.underwater;this.renderer.toneMappingExposure=T.MathUtils.lerp(.92,1.12,u);
+    this.world.surfaceWorld.update(this.camera,u);this.world.exploration.update(this.elapsed,p,this.quality);this.world.stream.far.visible=u<.95;
+    if(running){this.marine.update(dt,this.elapsed,p);this.effects.update(dt,this.elapsed,dark,this.diver.active,u);this.audio?.update(dt,dark,p.y>waterHeight(p.x,p.z,this.elapsed)-.12);}
+    this.environment.update(this,dt,dark,u);depthLight.value=(1-dark)*this.environment.light;
+    if(this.diver.active){if(this.environment.period==='night')this.dialogue.trigger('night');if(this.underwater<.1)this.dialogue.trigger('surface');if(Math.hypot(p.x,p.z)>1000)this.dialogue.trigger('far');}this.dialogue.update(dt,this.diver.active);
+    this.readingTimer+=dt;if(this.readingTimer>.35){this.readingTimer=0;this.report();if(this.diver.active){for(const l of this.world.landmarks)if(l.p.distanceTo(p)<l.radius)this.discover(l.name,'Location');if(Math.hypot(p.x,p.z)>180)this.discover(this.world.stream.biomeAt(p.x,p.z),'Habitat');if(p.y>waterHeight(p.x,p.z,this.elapsed))this.discover('Above the Blue','Location');this.marine.nearby(p).forEach(name=>this.discover(name,'Species'));}}
+    this.discoveryDelay-=dt;if(this.diver.active&&this.discoveryDelay<=0&&this.discoveryQueue.length){this.callbacks.onDiscover(this.discoveryQueue.shift());this.discoveryDelay=6;}
+    this.effects.composer.render();this.frames++;this.performanceTime+=realDt;if(this.performanceTime>4){this.fps=Math.round(this.frames/this.performanceTime);if(this.fps<34&&this.quality==='high')this.setQuality('medium');else if(this.fps<27&&this.quality==='medium')this.setQuality('low');this.frames=0;this.performanceTime=0;}
+    this.frame=requestAnimationFrame(this.loop);
+  }
+  dispose(){this.disposed=true;this.unregisterTools?.();if(window.__abyssDebug===this)delete window.__abyssDebug;cancelAnimationFrame(this.frame);window.removeEventListener('resize',this.resize);this.diver.dispose();this.audio?.dispose();this.renderer.domElement.removeEventListener('webglcontextlost',this.contextLost);this.renderer.domElement.removeEventListener('webglcontextrestored',this.contextRestored);this.effects.dispose();this.world.stream.dispose();const geometries=new Set(),materials=new Set();this.scene.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>materials.add(m));});geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());this.renderer.dispose();this.renderer.domElement.remove();}
+}
+
+
+
+
