@@ -21,6 +21,7 @@
 
 - **Living Marine Ecosystem:** Encounter animated aquatic wildlife with procedural flocking and swimming dynamics—including schools of tropical reef fish, sea turtles, manta rays, bioluminescent deep-sea jellyfish, and oceanic whales.
 - **Dynamic Underwater Atmosphere:** Custom shaders simulate water caustics, sunlight scattering, volumetric depth fog, dynamic wave surfaces, and suspended particulate (marine snow).
+- **Living Weather & Sky:** A continuous 24-hour clock carries a real sun and moon arc, and five weather states — clear, overcast, sea mist, rain and storm — roll through on their own if you let them. Wind is a bearing as well as a speed, steering cloud drift, rain slant, surface chop and whitecaps together. Storms bring lightning with distance-delayed thunder, splash rings where the rain lands, and murkier water below.
 - **Rich Exploration Biomes:** Descend from sunlit shallow coral reefs into shadowy underwater trenches, forgotten shipwrecks, and mysterious hydrothermal vents.
 - **Dual Perspective (1st & 3rd Person):** Seamlessly transition between an immersive first-person diving mask and a full third-person diver view with responsive 6-degrees-of-freedom swimming controls.
 - **Hydrophone Spatial Audio:** Atmospheric, generative hydrophone soundscapes featuring ambient diver breathing, bubble acoustics, deep ocean resonance, and tranquil musical tones.
@@ -43,6 +44,39 @@
 | <kbd>V</kbd> | Toggle First-Person / Third-Person view |
 | <kbd>F</kbd> | Toggle Diver Flashlight |
 | <kbd>ESC</kbd> | Pause Menu, Sound Settings & Fast Travel to Biomes |
+
+---
+
+## ⚙️ Graphics, Weather & Performance
+
+Everything below lives in the pause menu (<kbd>ESC</kbd>).
+
+### Quality presets — *Graphics* tab
+
+| Preset | Render resolution | Anti-aliasing | World / particles / view | Adaptive |
+| :--- | :--- | :--- | :--- | :--- |
+| **Performance** | 65% | FXAA | Low · Low · Near | On |
+| **Balanced** | 85% | SMAA | Medium · Medium · Medium | On |
+| **High** | 100% | MSAA 4× | High · High · Far | Off |
+| **Ultra** | 125% (supersampled) | MSAA 8× | High · High · Ultra | Off |
+
+Render resolution is a multiplier on the display's own pixel ratio, so **100% is always native** — on a
+high-DPI laptop that is already more pixels than the CSS size suggests. The *Buffer* readout in the menu
+header shows what is actually being rendered; if that number looks large for your GPU, drop the render
+resolution before anything else.
+
+**Adaptive quality** trims render resolution to hold 60 fps and hands it back when the frame rate recovers.
+It rides on top of whatever render resolution you chose and never climbs past it, so your other settings are
+left alone.
+
+### Weather — *Environment* tab
+
+- **Automatic** hands the weather to a scheduler that walks a transition table (clear → cloudy → rain →
+  storm and back) on an 80–220 s dwell. Fronts crossfade over roughly 25 s. Picking a specific preset
+  instead pins it, and lands in about 2.5 s so you can see it while the menu is still open.
+- **Clock** and **Day / night cycle** drive a real sun and moon arc. A running clock also drags the
+  automatic weather along with it, so a sped-up day does not sit under one sky.
+- **Weather density** scales rain and spray volume — turn it down for a cheaper storm.
 
 ---
 
@@ -70,9 +104,13 @@ The-Blue/
 │   ├── creatures/            # Marine fauna, flocking algorithms & swimming logic
 │   │   ├── MarineLife.js     # Pelagic fish, rays, sharks, whales
 │   │   └── BenthicLife.js    # Coral, anemones, seabed life
-│   ├── effects/              # Water caustics, volumetric lighting, marine snow
+│   ├── effects/              # Post-processing chain, volumetric lighting, marine snow
+│   │   └── Atmosphere.js     # Composer, MSAA scene pass, bloom, colour grade, light shafts
 │   ├── player/               # Diver avatar model, 6DOF controller & camera rig
 │   └── world/                # Ocean terrain streaming, biomes, and surface shaders
+│       ├── Environment.js    # Day/night clock, weather states, wind, rain & lightning
+│       ├── OceanSurface.js   # Sea surface, sky, cloud field and star shaders
+│       └── StreamingOcean.js # Chunked terrain streaming and biome placement
 ├── standalone/               # Pure static client entrypoint (index.html, main.tsx)
 ├── vite.static.config.mjs    # Static production bundle configuration
 ├── wrangler.jsonc            # Cloudflare Pages / Workers deployment configuration

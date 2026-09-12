@@ -13,7 +13,7 @@ import { registerExpeditionTools } from './webmcp.js';
 
 export class Game {
   constructor(mount,callbacks){
-    this.mount=mount;this.callbacks=callbacks;this.disposed=false;this.elapsed=0;this.last=performance.now();this.readingTimer=0;this.discovered=new Set();this.discoveryQueue=[];this.discoveryDelay=0;this.quality='high';this.particleDensity='high';this.autoAdjust=false;this.fps=60;this.frames=0;this.performanceTime=0;
+    this.mount=mount;this.callbacks=callbacks;this.disposed=false;this.elapsed=0;this.last=performance.now();this.readingTimer=0;this.discovered=new Set();this.discoveryQueue=[];this.discoveryDelay=0;this.quality='high';this.particleDensity='high';this.autoAdjust=false;this.fps=60;this.frames=0;this.performanceTime=0;this.dynamicScale=1;this.pixelRatio=0;
     this.graphics={renderScale:1,waterDetail:'high',particleDensity:'high',viewDistance:'high',antialiasing:'msaa4',bloom:true,bloomStrength:.30,lightShafts:true,distortion:.3,sharpness:.35,vignette:1,aberration:0,filmGrain:false,weatherDensity:1,fov:68,starSize:1,autoAdjust:false};
     this.scene=new T.Scene();this.scene.background=new T.Color('#167681');this.scene.fog=new T.FogExp2('#167681',.016);
     this.camera=new T.PerspectiveCamera(68,mount.clientWidth/mount.clientHeight,.06,5000);this.scene.add(this.camera);
@@ -38,7 +38,12 @@ export class Game {
   toggleFlashlight(){this.effects.toggleFlashlight();this.report();}
   visitSite(name){const site=destinations.find(s=>s.name===name);if(!site)return;this.discoveryQueue=[];this.discoveryDelay=0;const d=this.diver;d.position.set(site.x,site.name==='Palm Cay Anchorage'?waterHeight(site.x,site.z+18,this.elapsed)+.35:Math.min(25,floorHeight(site.x,site.z+18)+9),site.z+18);d.velocity.set(0,0,0);d.yaw=d.targetYaw=site.name==='Palm Cay Anchorage'?Math.PI/2:0;d.pitch=d.targetPitch=-.1;d.rig.distance=0;this.camera.position.copy(d.position);this.report();}
   setDialogueEnabled(value){this.dialogue.setEnabled(value);}
-  setWeather(value){if(weathers[value])this.environment.weather=value;}
+  // 'auto' hands the weather to the scheduler; anything else pins it and takes the scheduler off.
+  setWeather(value){
+    if(value==='auto'){this.environment.auto=true;this.environment.autoTimer=0;this.report();return;}
+    if(!weathers[value])return;
+    this.environment.auto=false;this.environment.setWeather(value);this.report();
+  }
   setTime(value){if(times[value])this.environment.period=value;}
   setHour(value){if(Number.isFinite(value))this.environment.setHour(value);}
   setCycleSpeed(value){this.environment.cycleSpeed=Math.max(0,Number(value)||0);}
@@ -49,18 +54,38 @@ export class Game {
     this.graphics={...this.graphics,...settings};const g=this.graphics;
     this.quality=g.waterDetail;this.particleDensity=g.particleDensity;this.autoAdjust=!!g.autoAdjust;
     this.world.stream.quality=g.waterDetail;this.world.stream.viewDistance=g.viewDistance;
-    // Render scale is a multiplier on the display's own pixel ratio, so 100% is always native.
-    const scale=Math.max(.5,Math.min(2,Number(g.renderScale)||1));
-    const ratio=Math.max(.5,Math.min(scale>1?3:2,devicePixelRatio*scale));this.pixelRatio=ratio;
-    this.renderer.setPixelRatio(ratio);this.effects.composer.setPixelRatio(ratio);
+    if(!g.autoAdjust)this.dynamicScale=1;
+    this.applyPixelRatio();
     this.camera.fov=T.MathUtils.clamp(Number(g.fov)||68,55,100);this.camera.updateProjectionMatrix();
     this.effects.configure(g);this.effects.plankton.geometry.setDrawRange(0,g.particleDensity==='low'?900:g.particleDensity==='medium'?1700:2800);
     this.world.grass.count=g.particleDensity==='low'?450:g.particleDensity==='medium'?750:1100;this.environment.weatherDensity=g.weatherDensity;
-    const stars=this.world.surfaceWorld.stars.material.uniforms;stars.uPixelRatio.value=ratio;stars.uStarSize.value=Math.max(.5,Number(g.starSize)||1);
+    const stars=this.world.surfaceWorld.stars.material.uniforms;stars.uPixelRatio.value=this.pixelRatio;stars.uStarSize.value=Math.max(.5,Number(g.starSize)||1);
     this.resize();this.report();
   }
+  // Render scale is a multiplier on the display's own pixel ratio, so 100% is always native.
+  // Adaptive quality rides on top of it as a second multiplier rather than rewriting the settings.
+  applyPixelRatio(){
+    const scale=Math.max(.5,Math.min(2,Number(this.graphics.renderScale)||1))*this.dynamicScale;
+    const ratio=Math.max(.4,Math.min(scale>1?3:2,devicePixelRatio*scale));
+    if(ratio===this.pixelRatio)return false;
+    this.pixelRatio=ratio;this.renderer.setPixelRatio(ratio);this.effects.composer.setPixelRatio(ratio);
+    this.world.surfaceWorld.stars.material.uniforms.uPixelRatio.value=ratio;
+    return true;
+  }
+  // One measured second per step, small moves, and a dead band wide enough that the scale settles
+  // instead of oscillating around the target. It never climbs past the resolution the player chose.
+  adapt(){
+    const target=60,floor=.6;
+    let next=this.dynamicScale;
+    if(this.fps<target*.80)next-=.10;
+    else if(this.fps<target*.93)next-=.05;
+    else if(this.fps>target*1.12&&next<1)next+=.04;
+    next=Math.max(floor,Math.min(1,Math.round(next*100)/100));
+    if(next===this.dynamicScale)return;
+    this.dynamicScale=next;if(this.applyPixelRatio())this.resize();
+  }
   discover(name,kind){if(!this.discovered.has(name)){this.discovered.add(name);this.dialogue.discover(name,kind);this.discoveryQueue.push({name,kind});}}
-  report(){const p=this.diver.position;let closest=this.world.stream.biomeAt(p.x,p.z),distance=Infinity;for(const l of this.world.landmarks){const d=l.p.distanceTo(p);if(d<l.radius&&d<distance){closest=l.name;distance=d;}}if(p.y<-37&&distance===Infinity)closest='Twilight Depths';const surface=p.y>waterHeight(p.x,p.z,this.elapsed)-.15;if(surface&&distance===Infinity)closest='Open Ocean · Surface';this.location=closest;const buffer=this.renderer.domElement;this.callbacks.onReading({depth:Math.max(0,waterHeight(p.x,p.z,this.elapsed)-p.y),heading:((T.MathUtils.radToDeg(-this.diver.yaw)%360)+360)%360,location:closest,fps:this.fps,frameTime:this.frameTime||0,resolution:`${buffer.width}×${buffer.height}`,renderScale:this.graphics.renderScale,hour:this.environment.hour,flashlight:this.effects.flashlight.intensity>0,cameraMode:this.diver.rig.mode,quality:this.quality,surface,distance:Math.hypot(p.x,p.z-26)});}
+  report(){const p=this.diver.position;let closest=this.world.stream.biomeAt(p.x,p.z),distance=Infinity;for(const l of this.world.landmarks){const d=l.p.distanceTo(p);if(d<l.radius&&d<distance){closest=l.name;distance=d;}}if(p.y<-37&&distance===Infinity)closest='Twilight Depths';const surface=p.y>waterHeight(p.x,p.z,this.elapsed)-.15;if(surface&&distance===Infinity)closest='Open Ocean · Surface';this.location=closest;const buffer=this.renderer.domElement;this.callbacks.onReading({depth:Math.max(0,waterHeight(p.x,p.z,this.elapsed)-p.y),heading:((T.MathUtils.radToDeg(-this.diver.yaw)%360)+360)%360,location:closest,fps:this.fps,frameTime:this.frameTime||0,resolution:`${buffer.width}×${buffer.height}`,renderScale:this.graphics.renderScale*this.dynamicScale,autoWeather:this.environment.auto,weather:this.environment.weather,wind:this.environment.windSpeed,hour:this.environment.hour,flashlight:this.effects.flashlight.intensity>0,cameraMode:this.diver.rig.mode,quality:this.quality,surface,distance:Math.hypot(p.x,p.z-26)});}
   loop(now){
     if(this.disposed)return;const realDt=(now-this.last)/1000,dt=Math.min(.05,realDt);this.last=now;const running=!this.diver.started||this.diver.active;if(running)this.elapsed+=dt;time.value=this.elapsed;
     this.world.stream.update(this.diver.position);this.diver.update(dt,this.elapsed);const p=this.diver.position;const depth=T.MathUtils.smoothstep(27-this.camera.position.y,24,105);
@@ -73,10 +98,9 @@ export class Game {
     if(this.diver.active){if(this.environment.period==='night')this.dialogue.trigger('night');if(this.underwater<.1)this.dialogue.trigger('surface');if(Math.hypot(p.x,p.z)>1000)this.dialogue.trigger('far');}this.dialogue.update(dt,this.diver.active);
     this.readingTimer+=dt;if(this.readingTimer>.35){this.readingTimer=0;this.report();if(this.diver.active){for(const l of this.world.landmarks)if(l.p.distanceTo(p)<l.radius)this.discover(l.name,'Location');if(Math.hypot(p.x,p.z)>180)this.discover(this.world.stream.biomeAt(p.x,p.z),'Habitat');if(p.y>waterHeight(p.x,p.z,this.elapsed))this.discover('Above the Blue','Location');this.marine.nearby(p).forEach(name=>this.discover(name,'Species'));}}
     this.discoveryDelay-=dt;if(this.diver.active&&this.discoveryDelay<=0&&this.discoveryQueue.length){this.callbacks.onDiscover(this.discoveryQueue.shift());this.discoveryDelay=6;}
-    this.effects.composer.render();this.frames++;this.performanceTime+=realDt;
+    this.effects.render();this.frames++;this.performanceTime+=realDt;
     if(this.performanceTime>1){this.fps=Math.round(this.frames/this.performanceTime);this.frameTime=this.performanceTime*1000/this.frames;this.frames=0;this.performanceTime=0;
-      this.adjustTimer=(this.adjustTimer||0)+1;
-      if(this.autoAdjust&&this.adjustTimer>4){this.adjustTimer=0;if(this.fps<34&&this.quality==='high')this.setQuality('medium');else if(this.fps<27&&this.quality==='medium')this.setQuality('low');}}
+      if(this.autoAdjust)this.adapt();}
     this.frame=requestAnimationFrame(this.loop);
   }
   dispose(){this.disposed=true;this.unregisterTools?.();if(window.__abyssDebug===this)delete window.__abyssDebug;cancelAnimationFrame(this.frame);window.removeEventListener('resize',this.resize);this.diver.dispose();this.audio?.dispose();this.renderer.domElement.removeEventListener('webglcontextlost',this.contextLost);this.renderer.domElement.removeEventListener('webglcontextrestored',this.contextRestored);this.effects.dispose();this.world.stream.dispose();const geometries=new Set(),materials=new Set();this.scene.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>materials.add(m));});geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());this.renderer.dispose();this.renderer.domElement.remove();}

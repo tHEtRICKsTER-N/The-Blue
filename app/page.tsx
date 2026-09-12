@@ -11,7 +11,7 @@ import { Slider } from '@/components/ui/slider';
 import { useDeviceCompatibility } from '@/hooks/use-device-compatibility';
 import { IncompatibleDeviceWarning } from '@/components/IncompatibleDeviceWarning';
 
-type Reading = { depth: number; heading: number; location: string; fps: number; frameTime?: number; resolution?: string; renderScale?: number; hour?: number; gpu?: string; flashlight: boolean; cameraMode: 'fps' | 'tps'; surface?: boolean; quality?: string; distance?: number };
+type Reading = { depth: number; heading: number; location: string; fps: number; frameTime?: number; resolution?: string; renderScale?: number; hour?: number; gpu?: string; flashlight: boolean; cameraMode: 'fps' | 'tps'; surface?: boolean; quality?: string; distance?: number; autoWeather?: boolean; weather?: string; wind?: number };
 type GraphicsSettings = {
   renderScale:number; waterDetail:string; particleDensity:string; viewDistance:string; antialiasing:string;
   bloom:boolean; bloomStrength:number; lightShafts:boolean; distortion:number; sharpness:number; vignette:number;
@@ -106,6 +106,10 @@ export default function Home() {
   function choosePeriod(value:string){const next=times[value as keyof typeof times];if(!next)return;setPeriod(value);setHour(next[1] as number);game.current?.setTime(value);}
   async function fullscreen() { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch { /* Embedded browser restriction. */ } }
   const scalePercent = Math.round((reading.renderScale ?? graphics.renderScale)*100);
+  // In automatic mode the world owns the weather, so the row reads back what is actually overhead.
+  const liveLabel = (weathers[(reading.weather ?? 'clear') as keyof typeof weathers] as unknown[] | undefined)?.[0];
+  const liveWeather = typeof liveLabel === 'string' ? liveLabel : 'Clear';
+  const windLabel = (reading.wind ?? 0) < .2 ? 'light' : (reading.wind ?? 0) < .45 ? 'moderate' : (reading.wind ?? 0) < .75 ? 'fresh' : 'gale';
   // While the clock is running the world owns the hour; the slider just reads it back.
   const shownHour = cycleSpeed > 0 && typeof reading.hour === 'number' ? reading.hour : hour;
   return <main className={`ocean-app ${started ? 'is-playing' : ''} ${paused ? 'is-paused' : ''} ${dialogue ? 'has-dialogue' : ''} ${compatibility.isIncompatible ? 'is-incompatible' : ''}`}>
@@ -144,7 +148,7 @@ export default function Home() {
             <SegmentRow label="View distance" value={graphics.viewDistance} options={[['low','Near'],['medium','Medium'],['high','Far'],['ultra','Ultra']]} onChange={v=>updateGraphics('viewDistance',v)}/>
             <SegmentRow label="Particle density" hint="Plankton, seagrass and rain" value={graphics.particleDensity} options={[['low','Low'],['medium','Medium'],['high','High']]} onChange={v=>updateGraphics('particleDensity',v)}/>
             <SliderRow label="Field of view" value={graphics.fov} min={60} max={95} step={1} format={v=>`${v}°`} onChange={v=>updateGraphics('fov',v)}/>
-            <SwitchRow label="Adaptive quality" hint="Step detail down automatically if the frame rate drops" checked={graphics.autoAdjust} onChange={v=>updateGraphics('autoAdjust',v)}/>
+            <SwitchRow label="Adaptive quality" hint="Trims render resolution to hold 60 fps, and gives it back when the frame rate recovers" checked={graphics.autoAdjust} onChange={v=>updateGraphics('autoAdjust',v)}/>
           </>}
           {menuTab==='effects' && <><div className="pane-head"><h2>Post effects</h2><p>Image treatment applied after the scene is drawn.</p></div>
             <SwitchRow label="Bloom" hint="Soft glow on bright highlights" checked={graphics.bloom} onChange={v=>updateGraphics('bloom',v)}/>
@@ -158,7 +162,7 @@ export default function Home() {
             <SliderRow label="Star size" hint="Night sky point size" value={graphics.starSize} min={.6} max={1.8} step={.05} format={v=>`${v.toFixed(2)}×`} onChange={v=>updateGraphics('starSize',v)}/>
           </>}
           {menuTab==='environment' && <><div className="pane-head"><h2>Environment</h2><p>Weather and light crossfade continuously — nothing snaps between presets.</p></div>
-            <SelectRow label="Weather" hint="Cloud cover, fog, swell and rain all crossfade together" value={weather} options={Object.entries(weathers).map(([key,v])=>[key,String((v as unknown[])[0])] as [string,string])} onChange={v=>{setWeather(v);game.current?.setWeather(v);}}/>
+            <SelectRow label="Weather" hint={weather==='auto'?`Fronts roll through on their own — currently ${liveWeather.toLowerCase()}, wind ${windLabel}`:'Cloud cover, fog, swell and rain all crossfade together'} value={weather} options={[['auto','Automatic'],...Object.entries(weathers).map(([key,v])=>[key,String((v as unknown[])[0])] as [string,string])]} onChange={v=>{setWeather(v);game.current?.setWeather(v);}}/>
             <SelectRow label="Time of day" hint="Jump to a named point on the clock" value={period} options={[...Object.entries(times).map(([key,v])=>[key,String((v as unknown[])[0])] as [string,string]),['custom','Custom']]} onChange={choosePeriod}/>
             <SliderRow label="Clock" hint="The sun and moon follow a real arc across the sky" value={shownHour} min={0} max={23.95} step={.05} format={clock} onChange={chooseHour}/>
             <SliderRow label="Day / night cycle" hint="In-game minutes per real second — zero holds the clock still" value={cycleSpeed} min={0} max={60} step={1} format={v=>v===0?'Paused':`${v}× min/s`} onChange={v=>{setCycleSpeed(v);game.current?.setCycleSpeed(v);}}/>

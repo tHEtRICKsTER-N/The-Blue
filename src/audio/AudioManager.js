@@ -11,7 +11,39 @@ export class AudioManager {
       this.noiseBuffer=buffer;const noise=c.createBufferSource();noise.buffer=buffer;noise.loop=true;
       this.filter=c.createBiquadFilter();this.filter.type='lowpass';this.filter.frequency.value=310;const volume=c.createGain();volume.gain.value=.33;noise.connect(this.filter);this.filter.connect(volume);volume.connect(this.master);noise.start();this.noise=noise;
       const drone=c.createOscillator();drone.type='sine';drone.frequency.value=48;const gain=c.createGain();gain.gain.value=.025;drone.connect(gain).connect(this.master);drone.start();this.drone=drone;
+      // Weather rides on white noise rather than the brown ambience loop: rain needs the high end
+      // that the integrated loop above has already thrown away. One source, two filtered taps —
+      // hiss for the rain on the water, and a low moan for the wind.
+      const white=c.createBuffer(1,length,c.sampleRate),whiteData=white.getChannelData(0);
+      for(let i=0;i<length;i++)whiteData[i]=(Math.random()*2-1)*.5;
+      const weather=c.createBufferSource();weather.buffer=white;weather.loop=true;this.weather=weather;
+      this.rainFilter=c.createBiquadFilter();this.rainFilter.type='bandpass';this.rainFilter.frequency.value=1900;this.rainFilter.Q.value=.45;
+      this.rainGain=c.createGain();this.rainGain.gain.value=0;
+      weather.connect(this.rainFilter);this.rainFilter.connect(this.rainGain);this.rainGain.connect(this.master);
+      this.windFilter=c.createBiquadFilter();this.windFilter.type='lowpass';this.windFilter.frequency.value=380;
+      this.windGain=c.createGain();this.windGain.gain.value=0;
+      weather.connect(this.windFilter);this.windFilter.connect(this.windGain);this.windGain.connect(this.master);
+      weather.start();
     }this.active=true;this.context?.resume().catch(()=>{});
+  }
+  // Above the surface you hear the storm; below it you feel it. Both levels ramp rather than step.
+  setWeather(rain=0,wind=0,surface=false){
+    const c=this.context;if(!c||!this.rainGain)return;const now=c.currentTime,above=surface?1:.14;
+    this.rainGain.gain.setTargetAtTime(Math.min(1,rain)*.26*above,now,.6);
+    this.windGain.gain.setTargetAtTime(Math.min(1,wind)*.20*(surface?1:.3),now,.9);
+    this.rainFilter.frequency.setTargetAtTime(surface?1900:620,now,1.2);
+    this.windFilter.frequency.setTargetAtTime(260+Math.min(1,wind)*420,now,1.2);
+  }
+  // Distance is in arbitrary strike units: near strikes crack, far ones are a long dull rumble.
+  thunder(distance=1){
+    const c=this.context;if(!c)return;const now=c.currentTime,source=c.createBufferSource(),filter=c.createBiquadFilter(),gain=c.createGain();
+    source.buffer=this.noiseBuffer;source.playbackRate.value=.30+Math.random()*.3;
+    filter.type='lowpass';filter.frequency.value=110+560/Math.max(.45,distance);filter.Q.value=.7;
+    const level=Math.min(.55,.40/Math.max(.5,distance)),tail=2.1+distance*.9;
+    gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(level,now+(distance<1?.05:.35));
+    gain.gain.exponentialRampToValueAtTime(.0015,now+tail);
+    source.connect(filter).connect(gain).connect(this.master);source.start(now);source.stop(now+tail+.3);
+    source.onended=()=>{source.disconnect();filter.disconnect();gain.disconnect();};
   }
   setMuted(value){this.muted=value;if(this.context)this.master.gain.setTargetAtTime(value?0:.45,this.context.currentTime,.4);}
   pause(){this.active=false;this.context?.suspend().catch(()=>{});}

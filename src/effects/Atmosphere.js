@@ -1,6 +1,7 @@
 import * as T from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
@@ -10,15 +11,40 @@ import { time, seededRandom } from '../world/materials.js';
 
 export const antialiasingModes={off:0,fxaa:0,smaa:0,msaa2:2,msaa4:4,msaa8:8};
 
+// Only the geometry pass gains anything from multisampling. Handing the sample count to the
+// composer's own ping-pong buffers — which is what a multisampled composer target does, because the
+// second buffer is cloned from the first — made bloom and the grade pass write and resolve a 4x or
+// 8x buffer every frame as well. This pass owns the multisampled target instead and hands the
+// resolved image on, so the rest of the chain runs at one sample.
+class SceneRenderPass extends RenderPass {
+  constructor(scene,camera,samples){
+    super(scene,camera);this.samples=Math.max(0,samples|0);this.width=1;this.height=1;this.target=null;
+    this.blit=new FullScreenQuad(new T.ShaderMaterial({depthTest:false,depthWrite:false,uniforms:{tDiffuse:{value:null}},
+      vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+      fragmentShader:'uniform sampler2D tDiffuse;varying vec2 vUv;void main(){gl_FragColor=texture2D(tDiffuse,vUv);}'}));
+  }
+  setSamples(count){const next=Math.max(0,count|0);if(next===this.samples)return;this.samples=next;this.target?.dispose();this.target=null;}
+  setSize(width,height){this.width=Math.max(1,Math.round(width));this.height=Math.max(1,Math.round(height));if(this.target)this.target.setSize(this.width,this.height);}
+  render(renderer,writeBuffer,readBuffer,deltaTime,maskActive){
+    if(this.samples<=0||this.renderToScreen){super.render(renderer,writeBuffer,readBuffer,deltaTime,maskActive);return;}
+    if(!this.target){this.target=new T.WebGLRenderTarget(this.width,this.height,{type:T.HalfFloatType,samples:this.samples});this.target.texture.name='Atmosphere.scene';}
+    super.render(renderer,writeBuffer,this.target,deltaTime,maskActive);
+    // Unbinding a multisampled target resolves it, so reading the texture here costs nothing extra.
+    renderer.setRenderTarget(readBuffer);
+    this.blit.material.uniforms.tDiffuse.value=this.target.texture;this.blit.render(renderer);
+  }
+  dispose(){this.target?.dispose();this.blit.material.dispose();this.blit.dispose();}
+}
+
 export class Atmosphere {
   constructor(renderer,scene,camera){
-    this.scene=scene;this.camera=camera;this.renderer=renderer;this.rayMeshes=[];this.random=seededRandom(413);this.bubbles=[];this.bubbleTimer=0;this.bubbleIndex=0;this.samples=4;
-    // An explicitly multisampled buffer. The default composer target has no MSAA at all, which is
-    // what left every silhouette in the scene stair-stepped no matter how the image was scaled.
+    this.scene=scene;this.camera=camera;this.renderer=renderer;this.rayMeshes=[];this.random=seededRandom(413);this.bubbles=[];this.bubbleTimer=0;this.bubbleIndex=0;this.samples=4;this.raysVisible=true;this.lightShafts=true;
+    // Plain half-float ping-pong buffers; multisampling lives on the scene pass's own target.
     const size=renderer.getSize(new T.Vector2()),ratio=renderer.getPixelRatio();
-    this.target=new T.WebGLRenderTarget(Math.max(1,Math.round(size.width*ratio)),Math.max(1,Math.round(size.height*ratio)),{type:T.HalfFloatType,samples:this.samples});
+    this.target=new T.WebGLRenderTarget(Math.max(1,Math.round(size.width*ratio)),Math.max(1,Math.round(size.height*ratio)),{type:T.HalfFloatType});
     this.target.texture.name='Atmosphere.rt';
-    this.composer=new EffectComposer(renderer,this.target);this.composer.addPass(new RenderPass(scene,camera));
+    this.composer=new EffectComposer(renderer,this.target);
+    this.scenePass=new SceneRenderPass(scene,camera,this.samples);this.composer.addPass(this.scenePass);
     this.bloom=new UnrealBloomPass(new T.Vector2(800,600),.30,.65,.85);this.composer.addPass(this.bloom);
     this.smaa=new SMAAPass();this.smaa.enabled=false;this.composer.addPass(this.smaa);
     this.grade=new ShaderPass({uniforms:{tDiffuse:{value:null},uTime:time,uDepth:{value:0},uUnderwater:{value:1},uTexel:{value:new T.Vector2(1/800,1/600)},uSharpness:{value:.35},uDistortion:{value:.3},uVignette:{value:1},uGrain:{value:0},uAberration:{value:0},uFlash:{value:0}},vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',fragmentShader:`uniform sampler2D tDiffuse;uniform float uTime;uniform float uDepth;uniform float uUnderwater;uniform vec2 uTexel;uniform float uSharpness;uniform float uDistortion;uniform float uVignette;uniform float uGrain;uniform float uAberration;uniform float uFlash;varying vec2 vUv;
@@ -81,24 +107,42 @@ export class Atmosphere {
     for(let i=0;i<100;i++)this.bubbles.push({life:0,x:0,y:0,z:0});
   }
   setFlash(value){this.grade.uniforms.uFlash.value=value;}
+  // Sixteen tall double-sided additive cylinders are a lot of overdraw to pay for an effect that is
+  // invisible above water or in the dark, so the shafts leave the draw list once they fade out.
+  setRayOpacity(value){
+    this.rayMaterial.uniforms.uOpacity.value=value;
+    const visible=this.lightShafts&&value>.004;
+    if(visible!==this.raysVisible){this.raysVisible=visible;for(const ray of this.rayMeshes)ray.visible=visible;}
+  }
   update(dt,t,depth,active,underwater=1){
-    this.grade.uniforms.uDepth.value=depth;this.grade.uniforms.uUnderwater.value=underwater;this.rayMaterial.uniforms.uOpacity.value=(1-depth*.96)*underwater;this.plankton.visible=underwater>.01;this.sunSprite.visible=underwater>.05;for(const ray of this.rayMeshes){ray.position.x=this.camera.position.x+ray.userData.offset.x;ray.position.z=this.camera.position.z+ray.userData.offset.z;}
+    this.grade.uniforms.uDepth.value=depth;this.grade.uniforms.uUnderwater.value=underwater;this.plankton.visible=underwater>.01;this.sunSprite.visible=underwater>.05;
+    if(this.raysVisible)for(const ray of this.rayMeshes){ray.position.x=this.camera.position.x+ray.userData.offset.x;ray.position.z=this.camera.position.z+ray.userData.offset.z;}
     if(active&&(this.diverAnchor?.position.y??0)<26.7){this.bubbleTimer+=dt;if(this.bubbleTimer>4.8){this.bubbleTimer=0;const forward=new T.Vector3();const source=this.diverAnchor||this.camera;source.getWorldDirection(forward);if(this.diverAnchor)forward.negate();for(let i=0;i<15;i++){const b=this.bubbles[this.bubbleIndex++%100];b.life=5+this.random()*2;b.x=source.position.x+forward.x*.28+(this.random()-.5)*.3;b.y=source.position.y-.14+forward.y*.28-this.random()*.08;b.z=source.position.z+forward.z*.28+(this.random()-.5)*.3;}}}
     for(let i=0;i<100;i++){const b=this.bubbles[i];b.life-=dt;if(b.y>27)b.life=0;if(b.life>0){b.x+=Math.sin(t+i)*dt*.13;b.y+=dt*(.7+i%4*.13);this.bubbleData.set([b.x,b.y,b.z],i*3);}else this.bubbleData[i*3+1]=-999;}this.bubblePoints.geometry.attributes.position.needsUpdate=true;
   }
   toggleFlashlight(){const on=this.flashlight.intensity===0;this.flashlight.intensity=on?170:0;this.beam.visible=on;this.plankton.material.uniforms.uFlash.value=on?1:0;return on;}
-  // Multisampling has to be rebuilt on the GPU, so the targets are dropped and re-created lazily.
-  setSamples(count){const next=Math.max(0,count|0);if(next===this.samples)return;this.samples=next;for(const target of [this.composer.renderTarget1,this.composer.renderTarget2]){target.dispose();target.samples=next;}}
+  // Multisampling has to be rebuilt on the GPU, so the target is dropped and re-created lazily.
+  setSamples(count){this.samples=Math.max(0,count|0);this.scenePass.setSamples(this.samples);}
   configure({bloom=true,bloomStrength=.30,antialiasing='off',sharpness=.35,distortion=.3,lightShafts=true,vignette=1,filmGrain=false,aberration=0}={}){
     this.bloom.enabled=bloom;this.bloom.strength=bloomStrength;
     this.fxaa.enabled=antialiasing==='fxaa';this.smaa.enabled=antialiasing==='smaa';
     this.setSamples(antialiasingModes[antialiasing]??0);
     const u=this.grade.uniforms;
     u.uSharpness.value=sharpness;u.uDistortion.value=distortion;u.uVignette.value=vignette;u.uGrain.value=filmGrain?1:0;u.uAberration.value=aberration;
-    this.rayMeshes.forEach(ray=>ray.visible=lightShafts);this.lightShafts=lightShafts;
+    this.lightShafts=lightShafts;this.raysVisible=null;this.setRayOpacity(this.rayMaterial.uniforms.uOpacity.value);
+  }
+  // The composer flips its read and write buffers once per swapping pass, so which buffer the scene
+  // lands in otherwise depends on how many passes happen to be enabled. Pinning keeps that fixed.
+  render(){
+    this.composer.writeBuffer=this.composer.renderTarget1;
+    this.composer.readBuffer=this.composer.renderTarget2;
+    this.composer.render();
   }
   resize(w,h){
     this.composer.setSize(w,h);const ratio=this.renderer.getPixelRatio();
+    // Bloom is a wide blur. Running its mip chain at half the frame's resolution is indistinguishable
+    // from full rate and drops the most expensive pair of separable blur passes.
+    this.bloom.setSize(Math.max(1,w*ratio*.5),Math.max(1,h*ratio*.5));
     this.grade.uniforms.uTexel.value.set(1/(w*ratio),1/(h*ratio));
     this.plankton.material.uniforms.uPixelRatio.value=ratio;this.bubblePoints.material.uniforms.uPixelRatio.value=ratio;
   }

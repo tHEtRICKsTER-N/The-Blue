@@ -4,6 +4,82 @@ This document tracks technical decisions, architecture milestones, and deploymen
 
 ---
 
+## [2026-09-12] — Weather System Rework & Render Pipeline Optimisation
+
+### 1. Render pipeline — where the frames were going
+
+Four fixes in `src/effects/Atmosphere.js`, `src/core/Game.js` and `src/world/OceanSurface.js`. Measured on an
+Intel UHD test machine at 1280×720 with MSAA 4× (the savings are bandwidth-bound, so they scale with
+resolution — the same benchmark at 1600×900 showed 1.47–1.54×):
+
+| Scene | Before | After | Speed-up |
+| --- | --- | --- | --- |
+| Reef, underwater | 19.2 ms | 14.1 ms | 1.36× |
+| Surface, storm | 21.1 ms | 16.0 ms | 1.32× |
+| Surface, clear day | 18.5 ms | 16.4 ms | 1.13× |
+
+- **MSAA was applied to the whole post chain, not just the scene.** `EffectComposer` clones the target it
+  is handed to make its second ping-pong buffer, so a multisampled composer target meant *both* buffers
+  carried the sample count. Bloom and the grade pass were each writing and resolving a 4× or 8× half-float
+  buffer every frame. A `SceneRenderPass` subclass now owns the multisampled target, renders the scene into
+  it and blits the resolved result into the chain; the composer's own buffers stay at one sample. This is
+  the single largest win — roughly 7 ms of the 5 ms/frame saved underwater.
+- **The composer's read/write buffers are now pinned at the top of each frame.** Which buffer the scene
+  lands in depended on how many swapping passes happened to be enabled, and flipped between frames on odd
+  pass counts. `Atmosphere.render()` resets them so the scene pass always targets the same buffer.
+- **The sky sphere was drawn first.** It carries the most expensive fragment shader in the scene — three
+  octaves of cloud noise plus the milky band — and at `renderOrder: -10` it ran on every pixel that terrain
+  and water then covered. It writes no depth, so moving it to `renderOrder: 1000` lets early-Z reject the
+  hidden pixels before they shade.
+- **Bloom runs its mip chain at half the frame's resolution**, which is indistinguishable for a wide blur.
+- **The water shader skips its small-scale work past the detail fade.** Ripple normals, the night glow and
+  the rain terms were computed for every water pixel and then multiplied by a `detail` factor that is zero
+  beyond 180 m. Branching on it removes ~50 sine evaluations from most of the screen above water.
+- **Light shafts leave the draw list when their opacity reaches zero** (above water, or in the dark) rather
+  than drawing sixteen tall double-sided additive cylinders for an invisible effect.
+- **Adaptive quality is now dynamic resolution.** It used to permanently overwrite the player's
+  `waterDetail` / `particleDensity` / `renderScale` below 34 fps and never restore them. It now rides a
+  separate multiplier on top of the chosen render scale, targets 60 fps, steps in small increments with a
+  dead band, gives resolution back when the frame rate recovers, and never climbs past what the player set.
+
+### 2. Weather system
+
+- **Fixed: a steady wind walked the rain out of the world.** The rain pool's horizontal wind drift was
+  unwrapped while only the fall was wrapped, so at storm wind the whole column translated out of the
+  78 m box centred on the diver — verified at x ∈ [+34, +114] after two minutes and [+330, +411] after ten.
+  The drift now wraps like the fall does, and the streak lean is applied after the wrap so the two ends of
+  a segment can never land on opposite sides of it.
+- **Automatic weather.** A small transition table (`weatherFlow`) walks clear → cloudy → rain → storm and
+  back on a 80–220 s dwell, so nothing jumps from clear to storm without building through it. Two simulated
+  hours give roughly clear 21% / cloudy 25% / mist 28% / rain 17% / storm 10%.
+- **Two transition speeds.** A hand-picked preset lands in ~2.5 s so it is visible while the menu is still
+  open; an automatic front crossfades over ~25 s so it reads as weather rather than as a settings toggle.
+- **Wind is a bearing as well as a speed**, swinging slowly on its own loop, and now drives the cloud field's
+  scroll speed and direction, the rain's slant, the surface chop and the whitecaps together. The cloud field
+  scrolls on an accumulated drift rather than raw time, so changing wind changes cloud speed without
+  teleporting the sky, and its octaves slide against each other so cover churns as it travels.
+- **Whitecaps** ride the crests of the swell (free — the vertex stage already displaced them) and only break
+  once the wind is up. They take their brightness from the horizon rather than the direct light term, which
+  a storm crushes to 0.23 — foam lit that way came out grey and invisible.
+- **Rain splash rings**: one hashed cell per drop, jittered inside its cell and on its own clock, fading out
+  after a few metres. Previously rain only roughened the surface instead of landing on it.
+- **Lightning** is keyed off the blended weather rather than the visible rain pool, which the depth fade
+  zeroes out — the storm is still overhead when you are twenty metres down. Each strike gets a distance that
+  sets both the flash intensity and the thunder delay, and the flash is now attenuated rather than removed
+  underwater.
+- **Weather audio**: rain hiss and wind on a white-noise layer (the existing ambience loop is integrated
+  brown noise and has no high end to give), muffled with depth, plus distance-filtered thunder.
+- **Heavy weather costs underwater visibility** — a rough surface adds turbidity to the fog density.
+
+### 3. Verification
+- `npm run build:static` clean; `npx oxlint` error count unchanged from baseline (30, all pre-existing).
+- Driven in-browser: all AA modes and render scales cycled with zero GL errors, scene target and bloom chain
+  tracking resize correctly, light-shaft gating correct above/below water and against the user switch, and
+  adaptive resolution stepping down and recovering.
+- `scripts/check-ocean.mjs` was not run — Playwright is not installed in this environment.
+
+---
+
 ## [2026-09-11] — Production Deployment & Cloudflare CI/CD Pipeline
 
 ### 1. Context & Motivation
