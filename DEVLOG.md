@@ -4,6 +4,135 @@ This document tracks technical decisions, architecture milestones, and deploymen
 
 ---
 
+## [2026-09-13] — Physically Based Sky, Seamless Horizon & Weather Visuals *(in progress, uncommitted)*
+
+> **Status:** paused mid-session. All work below is **uncommitted** on branch
+> `feature/weather-and-render-performance` (last commit `37ea4e7`). `npm run build:static` passes and every
+> shader compiles without errors. See **§6 Where we stopped** before continuing.
+>
+> Housekeeping done this session: the stale `feature/weather-system` branch was deleted (it had no commits
+> that weren't already in `main`; the remote copy was already gone).
+
+### 1. The problem: "the sky looks like a box"
+
+Root cause, confirmed by hiding scene objects one at a time until the artefact went away: the cloud layer was
+projected onto a flat plane with `d.xz / max(.10, d.y)`. Below ~6° elevation the divisor stopped shrinking, so
+clouds were painted straight up the sky like wallpaper on a cylinder wall. That produced a ring of translucent
+vertical "columns" on the horizon and the feeling of standing inside a room. The sea also ended against a
+single flat horizon colour, which made the edge of the world readable.
+
+### 2. New architecture
+
+| File | Role |
+| --- | --- |
+| `src/world/SkyModel.js` *(new)* | The atmosphere. Single-scattering Rayleigh + Mie on an Earth-sized planet, with Schüler's closed-form Chapman approximation for the light path. Evaluated **on the CPU** into two 48×24 half-float lookup tables (sun and moon), indexed by `sin(angle/2)` from the light's bearing and `sqrt(sin elevation)`. Also owns the tiling noise texture and the shared GLSL library (`skyGLSL`, `skyUniformsGLSL`). |
+| `src/world/OceanSurface.js` | Sky dome, sea and star shaders rebuilt on that library. |
+| `src/world/Environment.js` | Drives everything from the clock and weather: exposure, veil, sun/cloud/ambient light, moon phase, star rotation, lightning, rainbow. The old hour→colour `palette` is gone. |
+
+Key design decisions:
+
+- **Clouds sit on curved shells** (cumulus at 1.8 km, cirrus at 8.5 km), found by ray–sphere intersection. They
+  foreshorten naturally all the way to a true horizon. This is the actual fix for the box.
+- **One table for sky, sea and horizon.** The dome, the sea's distance haze and its reflection all read
+  `clearSky()` / `horizonRing()` from the same lookup, so the join between sea and sky is invisible by
+  construction. The sea's haze reaches 100% before the water mesh ends at 3.4 km.
+- **The sky is computed on the CPU, not per pixel.** The first version ran the scattering integral in the
+  fragment shader. It measured 2–3× slower (below). The table is symmetric about the light's bearing, so
+  48×24 represents it exactly. While the sun or haze is changing it refreshes 3 rows per frame, rebuilds
+  outright on a jump (first frame, clock dragged), and costs nothing while the clock is still.
+- **Every texture lookup uses `textureLod`.** On Windows the browser's Direct3D back end (ANGLE) can't skip a
+  derivative-based lookup inside a branch, so it evaluated expensive branches (cloud shadows etc.) for every
+  pixel regardless.
+- **Exposure** scales sky power by `(noonZenith / currentZenith)^0.62`, clamped to 1–9, so twilight becomes a
+  blue hour instead of black. **White balance** is against the noon sun, so midday is white and low sun gold.
+- **Clouds take light from 1.8 km up** (`transmittance(sun, out, CLOUD_HEIGHT)`), so they stay lit for a few
+  minutes after sunset at sea level.
+
+### 3. Features added
+
+- Physically based sky colour for every hour: sunrise and sunset glow, afterglow, a blue hour, and a moonlit night.
+- Cumulus with domain-warped fBm, self-shadowing (one probe towards the sun), silver linings weighted to thin
+  edges, powder effect, and aerial perspective that dissolves distant cloud into the horizon.
+- High cirrus stretched along the wind.
+- **Cloud shadows moving across the sea**, tested against the same field as the visible clouds.
+- A sun disc with limb darkening, coloured by the air it shines through, plus a low-sun glitter path on the water.
+- **Moon phases:** the moon is shaded as a lit sphere and slips ~12°/day, so it waxes and wanes with the clock
+  running. It's drawn about 3× life size so the phase reads at game resolution.
+- **Rotating stars and Milky Way** turning about the same pole the sun circles. Stars twinkle harder near the
+  horizon and are hidden by clouds. The Milky Way uses triplanar noise (single-plane noise smeared it into streaks).
+- **Lightning:** each strike has a bearing, lighting the clouds around it, and near strikes draw a jagged bolt
+  with a fork from cloud base to sea, with re-strike flicker.
+- **Rainbows** (primary plus a fainter reversed secondary, brighter sky inside the bow) appear only while a shower
+  is arriving or clearing and the sun is below ~40°.
+- Distant rain curtains under the cloud deck. Rain streaks take the sky's colour.
+- Weather now dims light, not just flattens it: storms have a dark deck and dark sea, and a sun hidden by cloud
+  no longer glints on the water.
+
+### 4. Bugs found and fixed along the way
+
+- **Scratch-colour aliasing in `SkyModel.sky()`:** the caller passed the same scratch `Color` the function used
+  internally. The sun term was doubled, and whenever the moon was up the moon **overwrote** the sun, leaving the
+  horizon near-black at golden hour. That drew a dark line along the horizon, and the doubled daylight value was
+  also the cause of an over-milky horizon band.
+- Horizon clouds left a dark sliver because aerial perspective was capped at 90%. Distant cloud now fades fully.
+- A below-horizon sun or moon stops refreshing its table, so its power is forced to 0 there. Otherwise a stale
+  sunset table would glow all night.
+- Night effects (bioluminescence, stars, moon-blue light) now wait until the sun is well below the horizon.
+- `flat` (a reserved word in GLSL ES 3.00) and `main` renamed as shader variables.
+- **Correction to an earlier claim:** three.js disables in-material tone mapping when rendering into a render
+  target (`WebGLPrograms.js:167`), so the sky and water are **not** tone-mapped twice. No action needed.
+
+### 5. Performance
+
+Measured in one session on the Intel UHD test machine, 1280×720, MSAA 4×, committed version vs. this work
+(frame times are noisier than on 2026-09-12, so compare only within this table):
+
+| View | `37ea4e7` | Per-pixel scattering (rejected) | Lookup table (current) |
+| --- | --- | --- | --- |
+| Surface, looking up | 13.9 ms | 22.2 ms | 14.6 ms |
+| Surface, horizon | 26.8 ms | 55.4 ms | 28.1 ms |
+| Storm | 22.7 ms | 78.3 ms | 24.4 ms |
+| Underwater | 22.1 ms | 56.3 ms | 22.3 ms |
+
+The CPU cost of `Environment.update` is 0.012 ms per frame with the clock still and 0.22 ms with it running at 60×.
+
+### 6. Where we stopped — pick up here next time
+
+**Last change, not yet verified visually:** the underwater Snell's window at sunset rendered as a solid dark red
+disc. The last edit in `OceanSurface.js` (the `else` / back-face branch of the water shader) blends the zenith
+into the window colour, partly desaturates it, and applies water absorption (`* vec3(.6,.92,1.06)`). **First
+thing next session:** check underwater at ~18:10, looking up, and tune.
+
+Remaining to-do list:
+
+1. **Verify the Snell's-window fix** (above).
+2. **07:00 toward the sun is still bright and washed out.** It's better than before, but the Mie glare, the water
+   glitter path and the haze combine. Candidates: lower `MIE_SCALE` (now `.38`) or the path intensity, or an
+   exposure pull-down when looking into the sun.
+3. **Cloud shadows on the sea are subtle** from surface height. Consider more base-colour darkening (`.45`).
+4. Horizon band at midday is plausible but could be a little less white.
+5. Re-check the islands' fog colour. Scene fog uses the *average* horizon colour, not the bearing-specific ring,
+   so an island toward a low sun may not match the sky behind it.
+6. `Game.dispose()` does not yet call `world.surfaceWorld.model.dispose()` (noise and LUT textures leak on
+   unmount).
+7. Update README screenshots and features once the look is signed off, then run `npx oxlint` (the baseline was
+   30 pre-existing errors; confirm none are new), commit and push the branch, and open a PR to `main`.
+8. `.claude/launch.json` is still untracked. Decide whether to commit it.
+
+**How the visuals were verified** (useful for continuing): run the preview with `.claude/launch.json` (`abyss-static`,
+port 4173). In dev builds `window.__abyssDebug` is the `Game`. The method: set `g.disposed = true` to freeze the
+loop, pin the mount to 1280×720, call `g.setWeather()` / `g.setHour()`, step `g.environment.update(g, .05, 0, 0)`
+a few hundred times to settle, place the camera, then `g.effects.render()`. Several views were drawn into a
+2D-canvas contact sheet so one screenshot compared times of day. Freeze `uCloudDrift` when A/B-measuring pixels,
+or the clouds move between runs.
+
+**Tuning knobs:** `SkyModel.js` → `SUN_POWER`, `MIE`, `MIE_G`, `MIE_SCALE`, `CLOUD_SCALE`, `CLOUD_HEIGHT`.
+`Environment.js` → exposure curve (`^.62`, clamp 1–9), veil strength and `diffuse`, cloud sun factor, rainbow
+gating. `OceanSurface.js` → cloud aerial perspective (`tCloud/34000`), cirrus strength (`ca*.3`), sun disc
+(`*46`), moon size (`.018`).
+
+---
+
 ## [2026-09-12] — Weather System Rework & Render Pipeline Optimisation
 
 ### 1. Render pipeline — where the frames were going

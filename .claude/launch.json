@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "abyss-static",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "vite.static.config.mjs", "--port", "4173", "--strictPort"],
+      "port": 4173
+    }
+  ]
+}

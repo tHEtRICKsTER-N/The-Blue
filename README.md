@@ -22,6 +22,7 @@
 - **Living Marine Ecosystem:** Encounter animated aquatic wildlife with procedural flocking and swimming dynamics—including schools of tropical reef fish, sea turtles, manta rays, bioluminescent deep-sea jellyfish, and oceanic whales.
 - **Dynamic Underwater Atmosphere:** Custom shaders simulate water caustics, sunlight scattering, volumetric depth fog, dynamic wave surfaces, and suspended particulate (marine snow).
 - **Living Weather & Sky:** A continuous 24-hour clock carries a real sun and moon arc, and five weather states — clear, overcast, sea mist, rain and storm — roll through on their own if you let them. Wind is a bearing as well as a speed, steering cloud drift, rain slant, surface chop and whitecaps together. Storms bring lightning with distance-delayed thunder, splash rings where the rain lands, and murkier water below.
+- **Physically Based Sky** *(in development)*: Rayleigh and Mie atmospheric scattering gives true sunrises, sunsets, afterglow and a blue hour. Clouds sit on a curved layer that runs all the way to the horizon, and the sea fades into exactly the sky above it, so the world has no visible edge. It also adds moving cloud shadows on the water, a moon with real phases, stars and a Milky Way that turn with the clock, lightning bolts, and rainbows as showers clear.
 - **Rich Exploration Biomes:** Descend from sunlit shallow coral reefs into shadowy underwater trenches, forgotten shipwrecks, and mysterious hydrothermal vents.
 - **Dual Perspective (1st & 3rd Person):** Seamlessly transition between an immersive first-person diving mask and a full third-person diver view with responsive 6-degrees-of-freedom swimming controls.
 - **Hydrophone Spatial Audio:** Atmospheric, generative hydrophone soundscapes featuring ambient diver breathing, bubble acoustics, deep ocean resonance, and tranquil musical tones.
@@ -108,8 +109,9 @@ The-Blue/
 │   │   └── Atmosphere.js     # Composer, MSAA scene pass, bloom, colour grade, light shafts
 │   ├── player/               # Diver avatar model, 6DOF controller & camera rig
 │   └── world/                # Ocean terrain streaming, biomes, and surface shaders
-│       ├── Environment.js    # Day/night clock, weather states, wind, rain & lightning
-│       ├── OceanSurface.js   # Sea surface, sky, cloud field and star shaders
+│       ├── Environment.js    # Day/night clock, weather states, wind, rain, lightning & rainbow
+│       ├── SkyModel.js       # Atmospheric scattering lookup tables, noise & shared sky GLSL
+│       ├── OceanSurface.js   # Sea surface, sky dome, clouds, moon and star shaders
 │       └── StreamingOcean.js # Chunked terrain streaming and biome placement
 ├── standalone/               # Pure static client entrypoint (index.html, main.tsx)
 ├── vite.static.config.mjs    # Static production bundle configuration
