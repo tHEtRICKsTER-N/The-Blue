@@ -11,7 +11,8 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
-    "build:static": "vite build --config vite.static.config.mjs"
+    "build:static": "vite build --config vite.static.config.mjs",
+    "test:exploration": "node scripts/check-exploration.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

@@ -1,5 +1,6 @@
 // Authored, local radio exchanges: no network calls, speech service, or recurring API cost.
 const exchanges = {
+  'grotto-clue': [['Mira','There’s a blue glow in the rocks beyond the kelp. If you feel like exploring, I’ve left a Crystal Grotto bearing in your field notes. No hurry.']],
   welcome: [['Mira','Radio check. I have your signal. You can take your time down there.'],['You','Copy that. It feels quieter than I remembered.'],['Mira','Then let the ocean do most of the talking. I’m here when you need me.']],
   night: [['You','Mira… the water is full of little lights.'],['Mira','Bioluminescence. Something small, making itself visible in all that dark.'],['You','I think I needed to see that tonight.']],
   surface: [['Mira','There you are. Take a breath. Same sky, different world beneath it.'],['You','I’m not quite ready to come back yet.'],['Mira','You don’t have to.']],

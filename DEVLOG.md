@@ -4,6 +4,112 @@ This document tracks technical decisions, architecture milestones, and deploymen
 
 ---
 
+## [2026-09-14] — Field guide and dive history — implemented locally
+
+Continued the approved roadmap with milestone 2. Kept the dark ocean-console style,
+expanded the journal into an index/detail view, and preserved the optional grotto
+hint and per-dive radio transcript in collapsible sections.
+
+Implementation:
+- components/FieldJournal.tsx owns the accessible dialog, category tabs, search,
+  selected entry and dive history. Uses the existing dialog, tabs and input primitives.
+  Entries contain habitat guidance, first date/location/depth and recent encounters.
+- src/core/FieldGuide.js contains authored observations for all 22 game species and
+  known sites/habitats, filtering and history grouping. Copy describes the game;
+  it is not presented as a scientific species database. No undiscovered checklist.
+- src/creatures/SpecimenPortrait.js clones the actual animal or fish-school meshes,
+  frames them, and renders a 480x300 portrait on demand using the existing renderer.
+  It restores the game's render target, viewport and scissor state, disposes its
+  temporary render target and never disposes the shared creature geometry/materials.
+  Portraits are cached for the current game instance, not persisted or downloaded.
+- FieldNotes.js accepts both v1 and v2 envelopes under the existing storage key.
+  Previous notes become Earlier discoveries; no historical dive identity is invented.
+  New visits keep firstSeen and first depth/location while retaining up to 30 recent
+  encounters per discovery. Invalid/unavailable storage retains its existing handling.
+- Game tracks encounters separately from lifetime discoveries. A reload starts a new
+  dive identity; pause/resume does not. Familiar discoveries add one history entry
+  per dive without new-discovery toasts or repeating discovery dialogue.
+
+Validation:
+- PASS: node scripts/check-exploration.mjs. Added old-note migration, history reload,
+  repeated-visit suppression, first-sighting preservation, bounded history, filtering,
+  all species catalogue/model coverage, live-model immutability and render-state
+  restoration after a portrait render failure. Previous dolphin/guidance checks pass.
+- PASS: static production build through the existing Vite entrypoint. Existing
+  large-bundle warning remains. New journal/data/portrait code has no lint errors;
+  the seven existing diagnostics in app/page.tsx and Game.js remain unchanged.
+- The Sites build helper was attempted but cannot invoke npm in this environment:
+  the npm installation resolves to missing npm-cli.js/npm-prefix.js files. Used the
+  project's established static build without changing dependencies or system setup.
+- Local preview returned HTTP 200 and was queued in Codex. No browser interaction
+  or visual QA was performed this turn. Portrait model tests do not establish the
+  final rendered appearance or UI layout quality.
+
+Next:
+- Visual playtest: journal search/tabs/history, representative portraits (fish,
+  dolphin, turtle, jellyfish, octopus), then resume swimming and check the scene.
+- The previous full grotto route and dolphin movement visual review remain pending.
+- Next implementation milestone is underwater photography: hide HUD, frame/capture,
+  download; plan photo storage limits/deletion before attaching a photo library.
+- All changes remain local and uncommitted; nothing was published.
+
+---
+
+## [2026-09-14] — Exploration milestone 1 — implemented locally
+
+User approved the six improvement areas in PLAN.md and implementation of the first
+expedition slice: persistent notes, optional guidance and a richer animal encounter.
+The existing historical sky/weather entries below are retained as context; their
+branch/working-tree status describes those earlier sessions.
+
+Decisions: use versioned, validated browser-local field notes and save at discovery
+time rather than when toast notifications drain. Record first location, depth and
+date. Crystal Grotto gets an optional radio clue and field-note navigation. Dolphins
+get calm-approach and retreat behavior with a cooldown. No backend or new assets.
+
+Implemented:
+- FieldNotes.js validates a versioned localStorage record, deduplicates discoveries,
+  and handles invalid/unavailable storage. Game restores its discovery set and saves
+  immediately; UI notifications retain their six-second spacing. Field notes show
+  first encounter date, depth and location, plus storage availability feedback.
+- DiscoveryGuide.js offers one contextual Mira clue after 35 active seconds within
+  100 metres of Crystal Grotto. Field notes opt into a bearing/distance/depth hint;
+  the HUD shows bearing/distance while swimming. Guidance can be stopped anytime
+  and ends when the grotto is discovered. It is optional and resets between visits.
+- DolphinEncounter.js gives dolphins three seconds to approach a calm nearby diver,
+  keeps a nine-metre orbit, and retreats for ten seconds after a fast/close approach.
+  Movement is bounded by elapsed time, smoothly turns and respects the terrain floor.
+  Distant dolphins relocate with streaming after fast travel. Other species retain
+  their existing behavior. These are authored encounter behaviors, not a biological
+  simulation; obstacles beyond the terrain use the existing marine-life limitations.
+
+Verification:
+- PASS: node scripts/check-exploration.mjs. Covers persistence, invalid and blocked
+  storage, immediate saving before toast delivery, duplicate suppression, clue timing,
+  bearings, completion, radio opt-out, curiosity and retreat cooldown. Also runs the
+  actual MarineLife update: finite movement, curiosity, pause and fast-travel relocation.
+- PASS: node node_modules/vite/bin/vite.js build --config vite.static.config.mjs.
+  Existing large-chunk warning remains.
+- Browser: verified journal layout, guidance on/off, first discovery metadata and
+  retention after reload. Final browser error log empty. Browser testing caught a
+  missing diverSpeed argument; fixed and covered by the simulation integration test.
+- Lint: 31 existing errors remain. The seven diagnostics in touched files match
+  those obtained from their HEAD versions; remaining errors are in unchanged files.
+  New modules and test have no lint diagnostics.
+- Environment: npm resolves to a broken roaming installation, so validation used
+  installed Node entrypoints directly. No dependencies were added.
+
+Next session:
+- Play through the full optional grotto route and visually review dolphin movement
+  and separation, especially around rocks and after a rapid approach. Automated
+  behavior checks do not establish animation quality or hardware performance.
+- Continue with the illustrated journal/species entries in PLAN.md after that review.
+- Radio transcripts remain per-visit; only first discoveries persist. Local notes
+  do not transfer across browsers/devices or survive clearing browser storage.
+- No deployment or commit was performed.
+
+---
+
 ## [2026-09-13] — Physically Based Sky, Seamless Horizon & Weather Visuals *(in progress, uncommitted)*
 
 > **Status:** paused mid-session. All work below is **uncommitted** on branch

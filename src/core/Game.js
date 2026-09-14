@@ -1,3 +1,6 @@
+import { recordEncounter } from './FieldNotes.js';
+import { renderSpecimenPortrait } from '../creatures/SpecimenPortrait.js';
+import { DiscoveryGuide } from './DiscoveryGuide.js';
 import { Dialogue } from './Dialogue.js';
 import * as T from 'three';
 import { destinations } from '../world/ExplorationSites.js';
@@ -13,7 +16,7 @@ import { registerExpeditionTools } from './webmcp.js';
 
 export class Game {
   constructor(mount,callbacks){
-    this.mount=mount;this.callbacks=callbacks;this.disposed=false;this.elapsed=0;this.last=performance.now();this.readingTimer=0;this.discovered=new Set();this.discoveryQueue=[];this.discoveryDelay=0;this.quality='high';this.particleDensity='high';this.autoAdjust=false;this.fps=60;this.frames=0;this.performanceTime=0;this.dynamicScale=1;this.pixelRatio=0;
+    this.mount=mount;this.callbacks=callbacks;this.disposed=false;this.elapsed=0;this.last=performance.now();this.readingTimer=0;this.notes=callbacks.initialNotes||[];this.encountered=new Set();this.diveId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);this.portraits=new Map();this.discovered=new Set(this.notes.map(note=>note.name));this.guide=new DiscoveryGuide();this.discoveryQueue=[];this.discoveryDelay=0;this.quality='high';this.particleDensity='high';this.autoAdjust=false;this.fps=60;this.frames=0;this.performanceTime=0;this.dynamicScale=1;this.pixelRatio=0;
     this.graphics={renderScale:1,waterDetail:'high',particleDensity:'high',viewDistance:'high',antialiasing:'msaa4',bloom:true,bloomStrength:.30,lightShafts:true,distortion:.3,sharpness:.35,vignette:1,aberration:0,filmGrain:false,weatherDensity:1,fov:68,starSize:1,autoAdjust:false};
     this.scene=new T.Scene();this.scene.background=new T.Color('#167681');this.scene.fog=new T.FogExp2('#167681',.016);
     this.camera=new T.PerspectiveCamera(68,mount.clientWidth/mount.clientHeight,.06,5000);this.scene.add(this.camera);
@@ -84,8 +87,22 @@ export class Game {
     if(next===this.dynamicScale)return;
     this.dynamicScale=next;if(this.applyPixelRatio())this.resize();
   }
-  discover(name,kind){if(!this.discovered.has(name)){this.discovered.add(name);this.dialogue.discover(name,kind);this.discoveryQueue.push({name,kind});}}
-  report(){const p=this.diver.position;let closest=this.world.stream.biomeAt(p.x,p.z),distance=Infinity;for(const l of this.world.landmarks){const d=l.p.distanceTo(p);if(d<l.radius&&d<distance){closest=l.name;distance=d;}}if(p.y<-37&&distance===Infinity)closest='Twilight Depths';const surface=p.y>waterHeight(p.x,p.z,this.elapsed)-.15;if(surface&&distance===Infinity)closest='Open Ocean · Surface';this.location=closest;const buffer=this.renderer.domElement;this.callbacks.onReading({depth:Math.max(0,waterHeight(p.x,p.z,this.elapsed)-p.y),heading:((T.MathUtils.radToDeg(-this.diver.yaw)%360)+360)%360,location:closest,fps:this.fps,frameTime:this.frameTime||0,resolution:`${buffer.width}×${buffer.height}`,renderScale:this.graphics.renderScale*this.dynamicScale,autoWeather:this.environment.auto,weather:this.environment.weather,wind:this.environment.windSpeed,hour:this.environment.hour,flashlight:this.effects.flashlight.intensity>0,cameraMode:this.diver.rig.mode,quality:this.quality,surface,distance:Math.hypot(p.x,p.z-26)});}
+  speciesPortrait(name){
+    if(this.disposed)return null;
+    if(!this.portraits.has(name))this.portraits.set(name,renderSpecimenPortrait(this.renderer,this.marine,name));
+    return this.portraits.get(name);
+  }
+  setGuidance(active){this.guide.active=!!active;this.report();}
+  discover(name,kind){
+    if(this.encountered.has(name))return;
+    this.encountered.add(name);
+    const isNew=!this.discovered.has(name);this.discovered.add(name);
+    const p=this.diver.position;
+    const note={name,kind,location:this.location||this.world.stream.biomeAt(p.x,p.z),depth:Math.max(0,waterHeight(p.x,p.z,this.elapsed)-p.y),firstSeen:new Date().toISOString()};
+    this.notes=recordEncounter(this.notes,note,this.diveId);this.callbacks.onNotes?.(this.notes);
+    if(isNew){this.dialogue.discover(name,kind);this.discoveryQueue.push(note);}
+  }
+  report(){const p=this.diver.position;let closest=this.world.stream.biomeAt(p.x,p.z),distance=Infinity;for(const l of this.world.landmarks){const d=l.p.distanceTo(p);if(d<l.radius&&d<distance){closest=l.name;distance=d;}}if(p.y<-37&&distance===Infinity)closest='Twilight Depths';const surface=p.y>waterHeight(p.x,p.z,this.elapsed)-.15;if(surface&&distance===Infinity)closest='Open Ocean · Surface';this.location=closest;const buffer=this.renderer.domElement;this.callbacks.onGuide?.(this.guide.reading(p,this.world.landmarks.find(l=>l.name==='Crystal Grotto'),this.discovered.has('Crystal Grotto')));this.callbacks.onReading({depth:Math.max(0,waterHeight(p.x,p.z,this.elapsed)-p.y),heading:((T.MathUtils.radToDeg(-this.diver.yaw)%360)+360)%360,location:closest,fps:this.fps,frameTime:this.frameTime||0,resolution:`${buffer.width}×${buffer.height}`,renderScale:this.graphics.renderScale*this.dynamicScale,autoWeather:this.environment.auto,weather:this.environment.weather,wind:this.environment.windSpeed,hour:this.environment.hour,flashlight:this.effects.flashlight.intensity>0,cameraMode:this.diver.rig.mode,quality:this.quality,surface,distance:Math.hypot(p.x,p.z-26)});}
   loop(now){
     if(this.disposed)return;const realDt=(now-this.last)/1000,dt=Math.min(.05,realDt);this.last=now;const running=!this.diver.started||this.diver.active;if(running)this.elapsed+=dt;time.value=this.elapsed;
     this.world.stream.update(this.diver.position);this.diver.update(dt,this.elapsed);const p=this.diver.position;const depth=T.MathUtils.smoothstep(27-this.camera.position.y,24,105);
@@ -93,9 +110,9 @@ export class Game {
     const cp=this.camera.position,waterline=waterHeight(cp.x,cp.z,this.elapsed);this.underwater=1-T.MathUtils.smoothstep(cp.y-waterline,-.15,.12);
     const u=this.underwater;this.renderer.toneMappingExposure=T.MathUtils.lerp(.92,1.12,u);
     this.world.surfaceWorld.update(this.camera,u);this.world.exploration.update(this.elapsed,p,this.quality);this.world.stream.far.visible=u<.95;
-    if(running){this.marine.update(dt,this.elapsed,p);this.effects.update(dt,this.elapsed,dark,this.diver.active,u);this.audio?.update(dt,dark,p.y>waterHeight(p.x,p.z,this.elapsed)-.12);}
+    if(running){this.marine.update(dt,this.elapsed,p,this.diver.active?this.diver.velocity.length():0);this.effects.update(dt,this.elapsed,dark,this.diver.active,u);this.audio?.update(dt,dark,p.y>waterHeight(p.x,p.z,this.elapsed)-.12);}
     this.environment.update(this,dt,dark,u);depthLight.value=(1-dark)*this.environment.light;
-    if(this.diver.active){if(this.environment.period==='night')this.dialogue.trigger('night');if(this.underwater<.1)this.dialogue.trigger('surface');if(Math.hypot(p.x,p.z)>1000)this.dialogue.trigger('far');}this.dialogue.update(dt,this.diver.active);
+    if(this.diver.active){if(this.guide.update(dt,p,this.world.landmarks.find(l=>l.name==='Crystal Grotto'),this.discovered.has('Crystal Grotto')))this.dialogue.trigger('grotto-clue');if(this.environment.period==='night')this.dialogue.trigger('night');if(this.underwater<.1)this.dialogue.trigger('surface');if(Math.hypot(p.x,p.z)>1000)this.dialogue.trigger('far');}this.dialogue.update(dt,this.diver.active);
     this.readingTimer+=dt;if(this.readingTimer>.35){this.readingTimer=0;this.report();if(this.diver.active){for(const l of this.world.landmarks)if(l.p.distanceTo(p)<l.radius)this.discover(l.name,'Location');if(Math.hypot(p.x,p.z)>180)this.discover(this.world.stream.biomeAt(p.x,p.z),'Habitat');if(p.y>waterHeight(p.x,p.z,this.elapsed))this.discover('Above the Blue','Location');this.marine.nearby(p).forEach(name=>this.discover(name,'Species'));}}
     this.discoveryDelay-=dt;if(this.diver.active&&this.discoveryDelay<=0&&this.discoveryQueue.length){this.callbacks.onDiscover(this.discoveryQueue.shift());this.discoveryDelay=6;}
     this.effects.render();this.frames++;this.performanceTime+=realDt;
