@@ -41,8 +41,8 @@ Photos use browser-local storage; downloads remain available when album saving f
 
 ## Milestone 4 — Distinct destinations and wildlife
 
-- [x] Resident ray circuit through Basalt Cathedral, optional calm-observation radio exchange, and site/journal clues. Route clearance and discovery checked; visual encounter playtest pending.
-- [x] Resident nursery turtle feeding and vent colonies that open gradually after dark. Automated behavior/integration checks pass; visual playtest pending.
+- [x] Resident ray circuit through Basalt Cathedral, optional calm-observation radio exchange, and site/journal clues. Route clearance and discovery checked; browser still review confirmed the ray framed by the arch. Full animation playtest pending.
+- [x] Resident nursery turtle feeding and vent colonies that open gradually after dark. Automated behavior/integration checks pass; browser still review confirmed the nursery turtle and day/night vent geometry. Full reaction/animation playtest pending.
 - [x] Nursery turtle crowding/fast-approach response and sustained-beam interruption; vent crown retraction with slower recovery. Brief flashlight sweeps are tolerated.
 - [ ] Visual tuning of these species responses and extension to other species where useful.
 - [x] Site descriptions, field-guide clues and optional Mira exchanges for the cathedral, grazing turtle and nighttime vents.
@@ -65,8 +65,9 @@ cycle speed persist, rather than advancing the ocean while the player is away.
 ## Milestone 5 — Comfort and performance
 
 - [x] Mouse sensitivity, remappable dive and photo keys, invert vertical look, and reduced camera motion. Implemented locally on 2026-09-15 with saved preferences, conflict checks, alternate bindings, and restore defaults.
-- Fix adaptive-resolution recovery on displays capped at 60 Hz; measure frame
-  pacing before expanding optimization scope.
+- [x] Fix adaptive-resolution recovery on displays capped at 60 Hz: stable-window probes, cooldown and pacing checks; paused/hidden/stalled frames excluded.
+- [x] Add 95th-percentile frame timing for the last active sampling window.
+- [ ] Measure representative foreground hardware before expanding optimization scope.
 - Assess controller support, device defaults and accessibility after desktop polish.
 
 ## Working approach

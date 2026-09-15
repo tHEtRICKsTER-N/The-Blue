@@ -18,7 +18,7 @@ import { Slider } from '@/components/ui/slider';
 import { useDeviceCompatibility } from '@/hooks/use-device-compatibility';
 import { IncompatibleDeviceWarning } from '@/components/IncompatibleDeviceWarning';
 
-type Reading = { depth: number; heading: number; location: string; fps: number; frameTime?: number; resolution?: string; renderScale?: number; hour?: number; gpu?: string; flashlight: boolean; cameraMode: 'fps' | 'tps'; surface?: boolean; quality?: string; distance?: number; autoWeather?: boolean; weather?: string; wind?: number };
+type Reading = { depth: number; heading: number; location: string; fps: number; frameTime?: number; frameP95?:number; resolution?: string; renderScale?: number; hour?: number; gpu?: string; flashlight: boolean; cameraMode: 'fps' | 'tps'; surface?: boolean; quality?: string; distance?: number; autoWeather?: boolean; weather?: string; wind?: number };
 type GraphicsSettings = {
   renderScale:number; waterDetail:string; particleDensity:string; viewDistance:string; antialiasing:string;
   bloom:boolean; bloomStrength:number; lightShafts:boolean; distortion:number; sharpness:number; vignette:number;
@@ -174,6 +174,7 @@ export default function Home() {
         <div className="menu-telemetry" aria-label="Render telemetry">
           <span><i>FPS</i><b>{reading.fps}</b></span>
           <span><i>Frame</i><b>{(reading.frameTime??0).toFixed(1)}ms</b></span>
+          <span title="95% of frames completed within this interval during the last measured second of active play"><i>95% frame</i><b>{reading.frameP95?reading.frameP95.toFixed(1)+'ms':'—'}</b></span>
           <span><i>Buffer</i><b>{reading.resolution??'—'}</b></span>
           <span><i>Scale</i><b>{scalePercent}%</b></span>
         </div>

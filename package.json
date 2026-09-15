@@ -17,7 +17,8 @@
     "test:controls": "node scripts/check-controls.mjs",
     "test:preferences": "node scripts/check-preferences.mjs",
     "test:cathedral": "node scripts/check-cathedral.mjs",
-    "test:sites": "node scripts/check-site-behaviors.mjs"
+    "test:sites": "node scripts/check-site-behaviors.mjs",
+    "test:performance": "node scripts/check-performance.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

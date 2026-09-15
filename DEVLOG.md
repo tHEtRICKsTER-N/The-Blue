@@ -4,6 +4,32 @@ This document tracks technical decisions, architecture milestones, and deploymen
 
 ---
 
+## [2026-09-15] — Encounter review and capped-display resolution recovery
+
+Reviewed the nursery and Cathedral using in-game site selection and photo mode.
+The turtle is visible above the grass/seabed; the ray is clearly framed by the
+Cathedral arch. Day/night vent crowns and chimneys render correctly; nighttime crowns are visibly
+more extended. Browser console errors were empty. Restored the original Day
+setting after the night review. These still
+reviews do not establish full motion/flashlight-reaction quality. The hidden
+embedded preview initially reported 1 FPS / ~1006 ms and later ~30 FPS / 33 ms;
+these are environment-dependent observations, not a hardware benchmark.
+
+Fixed adaptive resolution's unreachable recovery threshold (>67.2 FPS) on 60 Hz
+screens. Active-play frame windows now permit a 0.04 recovery probe after three
+healthy windows (>=58 FPS, p95 <=22 ms, <=10% frames over 25 ms). Slow windows reduce
+scale by 0.05 or 0.10 and delay recovery for eight windows. Bounds remain 0.6–1 of
+the user's selected scale. User graphics preferences are not rewritten by adaptation.
+Pause, photo mode, hidden tabs and intervals above 250 ms reset sampling/recovery
+history. Added the last active window's p95 frame interval to settings telemetry.
+
+Validation: test:performance passes capped 60 Hz recovery to full scale, floor and
+ceiling, cooldown, uneven-frame rejection, sampling exclusion and resize integration.
+Controls, preferences, exploration, photography, Cathedral and site behavior suites
+pass; TypeScript, targeted lint and static production build pass. Existing bundle
+size warning remains. Representative foreground hardware profiling and full motion
+review remain open. No deployment or commit.
+
 ## [2026-09-15] — Nursery feeding and nighttime vent colonies
 
 Continued milestone 4 with a resident green sea turtle anchored to Seagrass Nursery.
