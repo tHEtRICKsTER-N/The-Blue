@@ -1,5 +1,7 @@
 // Authored, local radio exchanges: no network calls, speech service, or recurring API cost.
 const exchanges = {
+  'nursery-feeding': [['Mira','That turtle has found a grazing patch. Give it a little room and keep your light to one side.'],['You','I can see it taking its time between mouthfuls.']],
+  'vents-night': [['You','The crowns have opened out around the vents.'],['Mira','Try watching from the edge of your light. The garden has a different rhythm after dark.']],
   'cathedral-ray': [['Mira','A ray is making a circuit through the arch. Stay beside the opening and watch it come around again.'],['You','For a moment, the whole arch had wings.']],
   'grotto-clue': [['Mira','There’s a blue glow in the rocks beyond the kelp. If you feel like exploring, I’ve left a Crystal Grotto bearing in your field notes. No hurry.']],
   welcome: [['Mira','Radio check. I have your signal. You can take your time down there.'],['You','Copy that. It feels quieter than I remembered.'],['Mira','Then let the ocean do most of the talking. I’m here when you need me.']],

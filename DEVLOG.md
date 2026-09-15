@@ -4,6 +4,32 @@ This document tracks technical decisions, architecture milestones, and deploymen
 
 ---
 
+## [2026-09-15] — Nursery feeding and nighttime vent colonies
+
+Continued milestone 4 with a resident green sea turtle anchored to Seagrass Nursery.
+It alternates grazing and short swims, slows its flippers and nods toward the grass
+while feeding, and lifts away when crowded, approached quickly, or held in a direct
+flashlight beam. Calm recovery uses an eight-second cooldown. The resident uses
+existing species discoveries/history and does not relocate with roaming wildlife.
+
+Vent crowns use 216 instances in one dynamic mesh, retained through static site
+batching. Their extension blends through dawn/dusk, opening wider at night; sustained
+direct light retracts them, followed by a five-second cooldown and gradual reopening.
+Beam checks use diver view direction, an 18 m range and a narrow cone; brief sweeps
+are tolerated. These are authored game behaviors, not scientific species claims.
+Simulation time freezes the reactions in pause/photo mode. No new persistent store
+is needed: saved clock, flashlight and control choices feed these behaviors, while
+the momentary encounter state resets each visit. Journal/site descriptions and
+optional Mira exchanges explain both encounters without imposing objectives.
+
+Validation: test:sites passes transition/recovery, beam geometry, dawn/dusk, pause,
+terrain clearance, resident anchoring/discovery and crown batching integration.
+Existing cathedral, preferences, controls, exploration and photography suites pass.
+TypeScript, targeted lint and the static production build pass (existing bundle-size
+warning remains).
+Interactive visual review and response/ambience tuning remain explicit roadmap
+items. Work remains local without commit or deployment.
+
 ## [2026-09-15] — Return-visit persistence and Cathedral encounter
 
 Audited player-facing choices. Controls, graphics, discoveries/history and the

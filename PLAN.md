@@ -42,9 +42,11 @@ Photos use browser-local storage; downloads remain available when album saving f
 ## Milestone 4 — Distinct destinations and wildlife
 
 - [x] Resident ray circuit through Basalt Cathedral, optional calm-observation radio exchange, and site/journal clues. Route clearance and discovery checked; visual encounter playtest pending.
-- [ ] Nursery feeding and vent colonies that change after dark.
-- Turtle feeding, distinct species reactions and carefully tuned flashlight response.
-- Connect encounters through sound, environmental clues and optional Mira dialogue.
+- [x] Resident nursery turtle feeding and vent colonies that open gradually after dark. Automated behavior/integration checks pass; visual playtest pending.
+- [x] Nursery turtle crowding/fast-approach response and sustained-beam interruption; vent crown retraction with slower recovery. Brief flashlight sweeps are tolerated.
+- [ ] Visual tuning of these species responses and extension to other species where useful.
+- [x] Site descriptions, field-guide clues and optional Mira exchanges for the cathedral, grazing turtle and nighttime vents.
+- [ ] Evaluate encounter ambience and complete interactive visual review before release.
 
 ## Return-visit persistence audit — 2026-09-15
 

@@ -1,17 +1,18 @@
+import { ventBehavior, inFlashlightBeam } from '../creatures/SiteBehaviors.js';
 import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { floorHeight, oceanMaterial, seededRandom, swayMaterial, time, waterHeight } from './materials.js';
 
 export const destinations = [
   {name:'Basalt Cathedral',x:140,z:-240,description:'A reef manta ray circles through a broad arch among volcanic pillars.'},
-  {name:'The Smoking Gardens',x:-150,z:-460,description:'Mineral chimneys, rising plumes and pale tube-worm colonies.'},
-  {name:'Seagrass Nursery',x:150,z:90,description:'A quiet meadow sheltering cuttlefish, crabs and young reef fish.'},
+  {name:'The Smoking Gardens',x:-150,z:-460,description:'Pale vent colonies open wider after dark; direct light makes their crowns withdraw.'},
+  {name:'Seagrass Nursery',x:150,z:90,description:'A grazing sea turtle shares a quiet meadow with cuttlefish, crabs and young reef fish.'},
   {name:'Palm Cay Anchorage',x:-150,z:-310,description:'A sheltered island coast, a moored sailboat and circling seabirds.'},
 ];
 
 export class ExplorationSites {
   constructor(world){
-    this.world=world;this.groups=[];this.birds=[];this.floaters=[];
+    this.ventColonies=[];this.ventCrowns=[];this.ventDummy=new T.Object3D();this.world=world;this.groups=[];this.birds=[];this.floaters=[];
     this.random=seededRandom(971);this.sphere=new T.SphereGeometry(1,12,8);this.box=new T.BoxGeometry(1,1,1);this.cylinder=new T.CylinderGeometry(1,1,1,8);
     this.stone=oceanMaterial('#464f4b');this.wood=oceanMaterial('#81705a');this.green=swayMaterial('#536d34',.03);this.ivory=oceanMaterial('#ddd7b6');
     for(const site of destinations){const group=new T.Group();group.position.set(site.x,floorHeight(site.x,site.z),site.z);world.scene.add(group);this.groups.push(group);world.landmarks.push({name:site.name,p:new T.Vector3(site.x,site.name==='Palm Cay Anchorage'?27:group.position.y+6,site.z),radius:42});}
@@ -33,9 +34,11 @@ export class ExplorationSites {
   }
   vents(root){
     const rim=oceanMaterial('#aaa789'),worm=oceanMaterial('#a94435');const plumePositions=[];
+    this.crowns=new T.InstancedMesh(this.sphere,worm,216);this.crowns.instanceMatrix.setUsage(T.DynamicDrawUsage);this.crowns.frustumCulled=false;root.add(this.crowns);
     for(let i=0;i<12;i++){const x=(this.random()-.5)*38,z=(this.random()-.5)*34,h=2+this.random()*7,y=floorHeight(root.position.x+x,root.position.z+z)-root.position.y;
+      const colony={position:new T.Vector3(root.position.x+x,root.position.y+y+.9,root.position.z+z),extension:.3};this.ventColonies.push(colony);
       this.mesh(root,this.cylinder,this.stone,x,y+h*.5,z,.55,h,.65,true);this.mesh(root,new T.TorusGeometry(.48,.12,6,12),rim,x,y+h,z).rotation.x=Math.PI/2;
-      for(let j=0;j<18;j++){const a=j*2.4,r=1+this.random()*2,tx=x+Math.cos(a)*r,tz=z+Math.sin(a)*r,ty=floorHeight(root.position.x+tx,root.position.z+tz)-root.position.y;this.mesh(root,this.cylinder,this.ivory,tx,ty+.4,tz,.055,.8,.055);this.mesh(root,this.sphere,worm,tx,ty+.85,tz,.15,.12,.15);}
+      for(let j=0;j<18;j++){const a=j*2.4,r=1+this.random()*2,tx=x+Math.cos(a)*r,tz=z+Math.sin(a)*r,ty=floorHeight(root.position.x+tx,root.position.z+tz)-root.position.y;this.mesh(root,this.cylinder,this.ivory,tx,ty+.4,tz,.055,.8,.055);this.ventCrowns.push({x:tx,y:ty,z:tz,colony});}
       for(let j=0;j<45;j++)plumePositions.push(x+(this.random()-.5)*2,y+h+this.random()*13,z+(this.random()-.5)*2);
     }
     const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(plumePositions,3));
@@ -61,7 +64,13 @@ export class ExplorationSites {
     const wingShape=new T.Shape();wingShape.moveTo(0,0);wingShape.lineTo(1.6,-.3);wingShape.lineTo(.65,.16);wingShape.closePath();const wingG=new T.ShapeGeometry(wingShape);
     for(let i=0;i<16;i++){const bird=new T.Group();root.add(bird);this.mesh(bird,this.sphere,white,0,0,0,.14,.13,.4);const wings=[];for(const side of [-1,1]){const wing=this.mesh(bird,wingG,white,0,0,0,side,1,1);wing.rotation.x=Math.PI/2;wings.push(wing);}this.birds.push({root:bird,wings,phase:i*.8});}
   }
-  update(t,player,quality){
+  update(t,player,quality,dt=0,hour=12.5,light=null){
+    for(const colony of this.ventColonies)ventBehavior(colony,dt,hour,inFlashlightBeam(colony.position,light));
+    for(const [i,crown] of this.ventCrowns.entries()){
+      const extension=crown.colony.extension;this.ventDummy.position.set(crown.x,crown.y+.69+extension*.36,crown.z);
+      this.ventDummy.scale.set(.05+extension*.14,.025+extension*.18,.05+extension*.14);this.ventDummy.updateMatrix();this.crowns.setMatrixAt(i,this.ventDummy.matrix);
+    }
+    this.crowns.instanceMatrix.needsUpdate=true;
     this.groups.forEach((g,i)=>{g.visible=Math.hypot(g.position.x-player.x,g.position.z-player.z)<(i===3?1500:350);});
     const coast=this.groups[3];for(const f of this.floaters){const p=f.root.position;const h=waterHeight(p.x+coast.position.x,p.z+coast.position.z,t);p.y=h-coast.position.y;f.root.rotation.z=Math.sin(t*.65+f.phase)*.035;f.root.rotation.x=Math.sin(t*.85+f.phase)*.025;}
     for(const [i,b] of this.birds.entries()){b.root.visible=quality!=='low'||i<8;const a=t*.065+b.phase;b.root.position.set(Math.cos(a)*(38+i*2),48-coast.position.y+Math.sin(a*2)*3,Math.sin(a)*(30+i));b.root.position.y=Math.max(b.root.position.y,floorHeight(b.root.position.x+coast.position.x,b.root.position.z+coast.position.z)+8-coast.position.y);b.root.rotation.y=-a;b.wings.forEach((w,j)=>w.rotation.y=Math.sin(t*2.8+b.phase)*(j?-.18:.18));}

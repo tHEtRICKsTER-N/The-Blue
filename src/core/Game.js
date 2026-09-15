@@ -18,7 +18,7 @@ import { registerExpeditionTools } from './webmcp.js';
 
 export class Game {
   constructor(mount,callbacks){
-    this.mount=mount;this.callbacks=callbacks;this.disposed=false;this.elapsed=0;this.last=performance.now();this.readingTimer=0;this.notes=callbacks.initialNotes||[];this.encountered=new Set();this.diveId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);this.portraits=new Map();this.discovered=new Set(this.notes.map(note=>note.name));this.guide=new DiscoveryGuide();this.cathedralObservation={watched:0,observed:false};this.discoveryQueue=[];this.discoveryDelay=0;this.quality='high';this.particleDensity='high';this.autoAdjust=false;this.fps=60;this.frames=0;this.performanceTime=0;this.dynamicScale=1;this.pixelRatio=0;
+    this.mount=mount;this.callbacks=callbacks;this.disposed=false;this.elapsed=0;this.last=performance.now();this.readingTimer=0;this.notes=callbacks.initialNotes||[];this.encountered=new Set();this.diveId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);this.portraits=new Map();this.discovered=new Set(this.notes.map(note=>note.name));this.guide=new DiscoveryGuide();this.encounterLight={enabled:false,position:new T.Vector3(),direction:new T.Vector3()};this.cathedralObservation={watched:0,observed:false};this.discoveryQueue=[];this.discoveryDelay=0;this.quality='high';this.particleDensity='high';this.autoAdjust=false;this.fps=60;this.frames=0;this.performanceTime=0;this.dynamicScale=1;this.pixelRatio=0;
     this.graphics={renderScale:1,waterDetail:'high',particleDensity:'high',viewDistance:'high',antialiasing:'msaa4',bloom:true,bloomStrength:.30,lightShafts:true,distortion:.3,sharpness:.35,vignette:1,aberration:0,filmGrain:false,weatherDensity:1,fov:68,starSize:1,autoAdjust:false};
     this.scene=new T.Scene();this.scene.background=new T.Color('#167681');this.scene.fog=new T.FogExp2('#167681',.016);
     this.camera=new T.PerspectiveCamera(68,mount.clientWidth/mount.clientHeight,.06,5000);this.scene.add(this.camera);
@@ -140,11 +140,17 @@ export class Game {
     const cave=Math.abs(p.x+42)<7&&p.z<-104&&p.z>-131&&p.y<-13?1:0;this.caveLight=T.MathUtils.lerp(this.caveLight||0,cave,1-Math.exp(-dt*2));const dark=Math.max(depth,this.caveLight*.9);
     const cp=this.camera.position,waterline=waterHeight(cp.x,cp.z,this.elapsed);this.underwater=1-T.MathUtils.smoothstep(cp.y-waterline,-.15,.12);
     const u=this.underwater;this.renderer.toneMappingExposure=T.MathUtils.lerp(.92,1.12,u);
-    this.world.surfaceWorld.update(this.camera,u);this.world.exploration.update(this.elapsed,p,this.quality);this.world.stream.far.visible=u<.95;
-    if(running){this.marine.update(dt,this.elapsed,p,this.diver.active?this.diver.velocity.length():0);this.effects.update(dt,this.elapsed,dark,this.diver.active,u);this.audio?.update(dt,dark,p.y>waterHeight(p.x,p.z,this.elapsed)-.12);}
+    this.encounterLight.enabled=this.effects.flashlight.intensity>0;this.encounterLight.position.copy(p);this.encounterLight.direction.set(0,0,-1).applyQuaternion(this.diver.viewAnchor.quaternion);
+    this.world.surfaceWorld.update(this.camera,u);this.world.exploration.update(this.elapsed,p,this.quality,running?dt:0,this.environment.hour,this.encounterLight);this.world.stream.far.visible=u<.95;
+    if(running){this.marine.update(dt,this.elapsed,p,this.diver.active?this.diver.velocity.length():0,this.encounterLight);this.effects.update(dt,this.elapsed,dark,this.diver.active,u);this.audio?.update(dt,dark,p.y>waterHeight(p.x,p.z,this.elapsed)-.12);}
     this.environment.update(this,dt,dark,u);depthLight.value=(1-dark)*this.environment.light;
     if(this.diver.active){if(this.guide.update(dt,p,this.world.landmarks.find(l=>l.name==='Crystal Grotto'),this.discovered.has('Crystal Grotto')))this.dialogue.trigger('grotto-clue');if(this.environment.period==='night')this.dialogue.trigger('night');if(this.underwater<.1)this.dialogue.trigger('surface');if(Math.hypot(p.x,p.z)>1000)this.dialogue.trigger('far');}this.dialogue.update(dt,this.diver.active);
     if(this.diver.active&&this.marine.cathedralRay?.root.visible&&observeCathedralRay(this.cathedralObservation,dt,this.marine.cathedralRay.root.position.distanceTo(p),this.diver.velocity.length()))this.dialogue.trigger('cathedral-ray');
+    if(this.diver.active){
+      const turtle=this.marine.nurseryTurtle;
+      if(turtle?.root.visible&&turtle.behavior.mode==='feeding'&&turtle.root.position.distanceTo(p)<15)this.dialogue.trigger('nursery-feeding');
+      if(this.world.exploration.ventColonies.some(c=>c.extension>.85&&c.position.distanceTo(p)<20))this.dialogue.trigger('vents-night');
+    }
     this.readingTimer+=dt;if(this.readingTimer>.35){this.readingTimer=0;this.report();if(this.diver.active){for(const l of this.world.landmarks)if(l.p.distanceTo(p)<l.radius)this.discover(l.name,'Location');if(Math.hypot(p.x,p.z)>180)this.discover(this.world.stream.biomeAt(p.x,p.z),'Habitat');if(p.y>waterHeight(p.x,p.z,this.elapsed))this.discover('Above the Blue','Location');this.marine.nearby(p).forEach(name=>this.discover(name,'Species'));}}
     this.discoveryDelay-=dt;if(this.diver.active&&this.discoveryDelay<=0&&this.discoveryQueue.length){this.callbacks.onDiscover(this.discoveryQueue.shift());this.discoveryDelay=6;}
     this.effects.render();this.frames++;this.performanceTime+=realDt;
