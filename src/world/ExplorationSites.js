@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { floorHeight, oceanMaterial, seededRandom, swayMaterial, time, waterHeight } from './materials.js';
 
 export const destinations = [
-  {name:'Basalt Cathedral',x:140,z:-240,description:'Swim between volcanic pillars and through a broad stone arch.'},
+  {name:'Basalt Cathedral',x:140,z:-240,description:'A reef manta ray circles through a broad arch among volcanic pillars.'},
   {name:'The Smoking Gardens',x:-150,z:-460,description:'Mineral chimneys, rising plumes and pale tube-worm colonies.'},
   {name:'Seagrass Nursery',x:150,z:90,description:'A quiet meadow sheltering cuttlefish, crabs and young reef fish.'},
   {name:'Palm Cay Anchorage',x:-150,z:-310,description:'A sheltered island coast, a moored sailboat and circling seabirds.'},

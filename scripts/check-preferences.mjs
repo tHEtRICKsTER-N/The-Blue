@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import { defaultPreferences, normalizePreferences, savePreferences, loadPreferences, restorePreferences, loadGraphics } from '../src/core/PlayerPreferences.js';
+import { defaultControls, rebindControl, saveControls, loadControls } from '../src/core/Controls.js';
+import { Game } from '../src/core/Game.js';
+const data=new Map(),storage={getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value)};
+const expected={...defaultPreferences(),cameraMode:'tps',character:'female',skin:'#683e2d',muted:true,radioEnabled:false,weather:'auto',period:'custom',hour:4.2,cycleSpeed:12,guidance:true,flashlight:true,photoAspect:'square',photoGrid:false,photoFov:44};
+assert.equal(savePreferences(storage,expected),true);
+const controls=rebindControl({...defaultControls(),sensitivity:2,invertY:true,reducedMotion:true},'forward',0,'KeyE');saveControls(storage,controls);
+assert.deepEqual(loadPreferences(storage).settings,expected);assert.deepEqual(loadControls(storage).settings,controls);
+const calls={};const restored=Object.fromEntries(['CameraMode','Appearance','Muted','DialogueEnabled','Weather','Hour','Time','CycleSpeed','Guidance','Flashlight'].map(name=>['set'+name,(...args)=>{calls[name]=args;}]));
+restorePreferences(restored,loadPreferences(storage).settings);
+assert.deepEqual(calls,{CameraMode:['tps'],Appearance:['female','#683e2d'],Muted:[true],DialogueEnabled:[false],Weather:['auto'],Hour:[4.2],CycleSpeed:[12],Guidance:[true],Flashlight:[true]});
+assert.equal(normalizePreferences({period:'night',hour:3}).hour,23.5);
+assert.deepEqual(normalizePreferences({cameraMode:'invalid',muted:'false',hour:NaN}),defaultPreferences());
+assert.equal(loadPreferences({getItem:()=>'{bad'}).saved,false);
+assert.equal(savePreferences({setItem(){throw Error();}},expected),false);
+const defaults={renderScale:1,bloom:true,waterDetail:'high',fov:68};
+assert.deepEqual(loadGraphics({getItem:()=>JSON.stringify({settings:{renderScale:100,bloom:'false',waterDetail:'invalid',fov:null}})},defaults,{high:defaults}).settings,{...defaults,renderScale:2});
+// Game-side keyboard toggles must save too, not just settings-panel clicks.
+const patches=[],game={effects:{flashlight:{intensity:0},toggleFlashlight(){this.flashlight.intensity=this.flashlight.intensity?0:1;}},report(){},callbacks:{onPreferences:p=>patches.push(p)}};
+Game.prototype.setFlashlight.call(game,true);assert.deepEqual(patches.pop(),{flashlight:true});
+console.log('PASS: every player preference round-trips, restores into the game, coexists with remapped controls, validates corrupt graphics/preferences, and reports blocked storage.');

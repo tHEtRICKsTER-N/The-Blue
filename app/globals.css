@@ -388,3 +388,5 @@ kbd{font-family:var(--mono);font-size:9px;padding:3px 5px;border:1px solid var(-
 .binding-row>div{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.binding-row button[aria-pressed=true]{border-color:#bcebdc;background:#244d4b}
 .binding-row button{white-space:normal}.binding-clear{font-size:11px;text-decoration:underline;opacity:.75;padding:4px}
 .menu-keys,.controls-hint{flex-wrap:wrap}.menu-keys kbd,.controls-hint kbd{white-space:normal}
+
+.settings-persistence{font-size:12px;line-height:1.6;color:var(--muted-text);margin:0 0 20px;padding-bottom:12px;border-bottom:1px solid var(--rule)}

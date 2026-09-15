@@ -30,7 +30,7 @@ const places = {
   'Sunken Voyager': 'An open wooden hull, exposed ribs and a cabin passage rest on the seabed. Explore around the wreck before moving inside.',
   'Crystal Grotto': 'Overlapping stone arches shelter a blue-lit chamber. Keep a clear route back through the entrance as you explore the glow.',
   'Jellyfish Garden': 'A gathering of luminous bells marks a deeper, quieter part of the ocean. Try looking upward through the group.',
-  'Basalt Cathedral': 'Volcanic pillars and a broad stone arch give this site its tall silhouette. Swim around the formation to see the gaps change.',
+  'Basalt Cathedral': 'Volcanic pillars and a broad stone arch give this site its tall silhouette. A reef manta ray circles through the opening. Wait beside the arch to watch its next pass.',
   'The Smoking Gardens': 'Mineral chimneys, rising plumes and pale colonies surround the vents. Watch the movement above the seabed.',
   'Seagrass Nursery': 'A low meadow rewards close observation. Look below the open water for small residents moving among the grass.',
   'Palm Cay Anchorage': 'A sheltered island coast and moored sailboat offer a place to surface. Take in the sky before returning to the water.',

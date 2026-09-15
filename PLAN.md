@@ -41,10 +41,24 @@ Photos use browser-local storage; downloads remain available when album saving f
 
 ## Milestone 4 — Distinct destinations and wildlife
 
-- Signature encounters at existing sites: a ray through Basalt Cathedral, nursery
-  feeding, and vent colonies that change after dark.
+- [x] Resident ray circuit through Basalt Cathedral, optional calm-observation radio exchange, and site/journal clues. Route clearance and discovery checked; visual encounter playtest pending.
+- [ ] Nursery feeding and vent colonies that change after dark.
 - Turtle feeding, distinct species reactions and carefully tuned flashlight response.
 - Connect encounters through sound, environmental clues and optional Mira dialogue.
+
+## Return-visit persistence audit — 2026-09-15
+
+- [x] Verified keybindings, sensitivity and camera comfort preferences.
+- [x] Added saved camera mode, appearance, sound/radio, flashlight, optional guidance, weather/time/cycle choices and photo framing/grid/lens.
+- [x] Hardened graphics loading and added a visible save-failure notice.
+- [x] Browser reload confirmed bindings, inverted look, camera, appearance, audio/radio, weather and photo framing restoration.
+
+Data stays in the same browser/site origin: preferences and notes use localStorage;
+saved photos and attachments use IndexedDB. Browser-data clearing or storage
+restrictions can remove/prevent saves. No account or cross-device sync. Each visit
+starts a fresh dive; location, active menus, unsaved photo drafts, live weather
+progress and radio transcript are session state. The chosen starting clock and
+cycle speed persist, rather than advancing the ocean while the player is away.
 
 ## Milestone 5 — Comfort and performance
 

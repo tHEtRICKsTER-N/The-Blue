@@ -4,6 +4,39 @@ This document tracks technical decisions, architecture milestones, and deploymen
 
 ---
 
+## [2026-09-15] — Return-visit persistence and Cathedral encounter
+
+Audited player-facing choices. Controls, graphics, discoveries/history and the
+saved photo album already persisted. Added validated abyss-player-preferences
+storage for camera, appearance, mute/radio, weather, starting hour/cycle, guidance,
+flashlight and photo aspect/grid/lens. Game callbacks cover keyboard/HUD changes,
+not just settings controls. Hydration suppresses writes until restored settings
+have reached the game. Existing controls, graphics, notes and album stores stay
+compatible. Graphics loading now validates booleans, enums and numeric bounds.
+The settings pane reports unavailable storage instead of silently promising saves.
+
+Browser reload test PASS: forward W→E and invert look, third person, female diver,
+radio/audio off, sea mist and square frame/grid off all restored. No browser
+console errors. Restored original test preferences through the UI afterward.
+Automated preferences tests also exercise all fields, including skin, custom time,
+cycle, flashlight, guidance and photo lens; blocked/corrupt storage; graphics
+validation; Game restoration; coexistence with custom controls. Existing controls,
+exploration and photography tests pass. TypeScript and targeted lint pass.
+
+Continued milestone 4 with a site-anchored reef manta ray at Basalt Cathedral,
+a continuous circuit through the arch, journal/site description clues and a Mira
+exchange after three seconds of nearby calm observation. It never relocates with
+roaming animals, uses existing species discovery, and remains optional. Tests
+sample its full route against actual site stonework with 1.8 m clearance and terrain,
+and check anchoring, discovery and observation reset/one-shot behavior. Full visual
+encounter playtest remains pending. Nursery feeding, nighttime vent colonies and
+species flashlight responses remain for subsequent slices.
+
+Persistence scope: same browser and site origin, not account/cloud sync. New visits
+start fresh dives; open panels, unsaved drafts, live world progression and radio
+transcripts are transient. Saved notes/history and album attachments remain durable
+within browser storage. No commit or deployment.
+
 ## [2026-09-15] — Configurable controls — implemented locally
 
 Added a Controls section to expedition settings at the user's request, bringing

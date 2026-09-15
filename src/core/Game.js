@@ -1,3 +1,4 @@
+import { observeCathedralRay } from '../creatures/CathedralEncounter.js';
 import { captureFrame } from './Photography.js';
 import { recordEncounter } from './FieldNotes.js';
 import { renderSpecimenPortrait } from '../creatures/SpecimenPortrait.js';
@@ -17,7 +18,7 @@ import { registerExpeditionTools } from './webmcp.js';
 
 export class Game {
   constructor(mount,callbacks){
-    this.mount=mount;this.callbacks=callbacks;this.disposed=false;this.elapsed=0;this.last=performance.now();this.readingTimer=0;this.notes=callbacks.initialNotes||[];this.encountered=new Set();this.diveId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);this.portraits=new Map();this.discovered=new Set(this.notes.map(note=>note.name));this.guide=new DiscoveryGuide();this.discoveryQueue=[];this.discoveryDelay=0;this.quality='high';this.particleDensity='high';this.autoAdjust=false;this.fps=60;this.frames=0;this.performanceTime=0;this.dynamicScale=1;this.pixelRatio=0;
+    this.mount=mount;this.callbacks=callbacks;this.disposed=false;this.elapsed=0;this.last=performance.now();this.readingTimer=0;this.notes=callbacks.initialNotes||[];this.encountered=new Set();this.diveId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);this.portraits=new Map();this.discovered=new Set(this.notes.map(note=>note.name));this.guide=new DiscoveryGuide();this.cathedralObservation={watched:0,observed:false};this.discoveryQueue=[];this.discoveryDelay=0;this.quality='high';this.particleDensity='high';this.autoAdjust=false;this.fps=60;this.frames=0;this.performanceTime=0;this.dynamicScale=1;this.pixelRatio=0;
     this.graphics={renderScale:1,waterDetail:'high',particleDensity:'high',viewDistance:'high',antialiasing:'msaa4',bloom:true,bloomStrength:.30,lightShafts:true,distortion:.3,sharpness:.35,vignette:1,aberration:0,filmGrain:false,weatherDensity:1,fov:68,starSize:1,autoAdjust:false};
     this.scene=new T.Scene();this.scene.background=new T.Color('#167681');this.scene.fog=new T.FogExp2('#167681',.016);
     this.camera=new T.PerspectiveCamera(68,mount.clientWidth/mount.clientHeight,.06,5000);this.scene.add(this.camera);
@@ -26,7 +27,7 @@ export class Game {
     this.sun=new T.DirectionalLight('#fff0d4',3.2);this.sun.position.set(38,58,-52);this.scene.add(this.sun);
     this.fill=new T.DirectionalLight('#6bb5d7',.65);this.fill.position.set(-20,12,25);this.scene.add(this.fill);
     this.world=new OceanWorld(this.scene);this.world.addLandmarks();this.marine=new MarineLife(this.scene,this.world.obstacles);this.effects=new Atmosphere(this.renderer,this.scene,this.camera);this.audio=new AudioManager();
-    this.diver=new DiverController(this.camera,this.renderer.domElement,this.world,value=>{callbacks.onPause(value);if(value)this.audio.pause();},()=>this.toggleFlashlight(),()=>this.report());
+    this.diver=new DiverController(this.camera,this.renderer.domElement,this.world,value=>{callbacks.onPause(value);if(value)this.audio.pause();},()=>this.toggleFlashlight(),mode=>{this.report();this.callbacks.onPreferences?.({cameraMode:mode});});
     this.dialogue=new Dialogue(callbacks.onDialogue);this.environment=new Environment(this.scene);this.character='male';this.skin=skinTones[2];
     this.effects.setDiverAnchor(this.diver.viewAnchor);
     this.resize=()=>{const w=mount.clientWidth,h=mount.clientHeight;this.camera.aspect=w/h;this.camera.updateProjectionMatrix();this.renderer.setSize(w,h);this.effects.resize(w,h);};window.addEventListener('resize',this.resize);this.setGraphicsSettings(this.graphics);
@@ -40,20 +41,21 @@ export class Game {
   setControls(settings){this.diver.setControls(settings);}
   setCameraMode(mode){this.diver.setCameraMode(mode);}
   toggleCamera(){this.diver.toggleCamera();}
-  toggleFlashlight(){this.effects.toggleFlashlight();this.report();}
+  setFlashlight(value){if((this.effects.flashlight.intensity>0)!==value)this.effects.toggleFlashlight();this.report();this.callbacks.onPreferences?.({flashlight:value});}
+  toggleFlashlight(){this.setFlashlight(!(this.effects.flashlight.intensity>0));}
   visitSite(name){const site=destinations.find(s=>s.name===name);if(!site)return;this.discoveryQueue=[];this.discoveryDelay=0;const d=this.diver;d.position.set(site.x,site.name==='Palm Cay Anchorage'?waterHeight(site.x,site.z+18,this.elapsed)+.35:Math.min(25,floorHeight(site.x,site.z+18)+9),site.z+18);d.velocity.set(0,0,0);d.yaw=d.targetYaw=site.name==='Palm Cay Anchorage'?Math.PI/2:0;d.pitch=d.targetPitch=-.1;d.rig.distance=0;this.camera.position.copy(d.position);this.report();}
-  setDialogueEnabled(value){this.dialogue.setEnabled(value);}
+  setDialogueEnabled(value){this.dialogue.setEnabled(value);this.callbacks.onPreferences?.({radioEnabled:!!value});}
   // 'auto' hands the weather to the scheduler; anything else pins it and takes the scheduler off.
   setWeather(value){
-    if(value==='auto'){this.environment.auto=true;this.environment.autoTimer=0;this.report();return;}
+    if(value==='auto'){this.environment.auto=true;this.environment.autoTimer=0;this.report();this.callbacks.onPreferences?.({weather:value});return;}
     if(!weathers[value])return;
-    this.environment.auto=false;this.environment.setWeather(value);this.report();
+    this.environment.auto=false;this.environment.setWeather(value);this.report();this.callbacks.onPreferences?.({weather:value});
   }
-  setTime(value){if(times[value])this.environment.period=value;}
-  setHour(value){if(Number.isFinite(value))this.environment.setHour(value);}
-  setCycleSpeed(value){this.environment.cycleSpeed=Math.max(0,Number(value)||0);}
-  setAppearance(character,skin){if(!['male','female'].includes(character)||!skinTones.includes(skin))return;this.character=character;this.skin=skin;this.diver.avatar.setAppearance(character,skin);}
-  setMuted(value){this.muted=value;this.audio?.setMuted(value);}
+  setTime(value){if(times[value]){this.environment.period=value;this.callbacks.onPreferences?.({period:value,hour:times[value][1]});}}
+  setHour(value){if(Number.isFinite(value)){this.environment.setHour(value);this.callbacks.onPreferences?.({period:'custom',hour:value});}}
+  setCycleSpeed(value){this.environment.cycleSpeed=Math.max(0,Number(value)||0);this.callbacks.onPreferences?.({cycleSpeed:this.environment.cycleSpeed});}
+  setAppearance(character,skin){if(!['male','female'].includes(character)||!skinTones.includes(skin))return;this.character=character;this.skin=skin;this.diver.avatar.setAppearance(character,skin);this.callbacks.onPreferences?.({character,skin});}
+  setMuted(value){this.muted=value;this.audio?.setMuted(value);this.callbacks.onPreferences?.({muted:!!value});}
   setQuality(q){if(!['low','medium','high'].includes(q))return;this.setGraphicsSettings({...this.graphics,waterDetail:q,particleDensity:q,renderScale:q==='low'?.7:q==='medium'?.85:1});}
   setGraphicsSettings(settings){
     this.graphics={...this.graphics,...settings};const g=this.graphics;
@@ -119,7 +121,7 @@ export class Game {
     if(!this.portraits.has(name))this.portraits.set(name,renderSpecimenPortrait(this.renderer,this.marine,name));
     return this.portraits.get(name);
   }
-  setGuidance(active){this.guide.active=!!active;this.report();}
+  setGuidance(active){this.guide.active=!!active;this.report();this.callbacks.onPreferences?.({guidance:!!active});}
   discover(name,kind){
     if(this.encountered.has(name))return;
     this.encountered.add(name);
@@ -142,6 +144,7 @@ export class Game {
     if(running){this.marine.update(dt,this.elapsed,p,this.diver.active?this.diver.velocity.length():0);this.effects.update(dt,this.elapsed,dark,this.diver.active,u);this.audio?.update(dt,dark,p.y>waterHeight(p.x,p.z,this.elapsed)-.12);}
     this.environment.update(this,dt,dark,u);depthLight.value=(1-dark)*this.environment.light;
     if(this.diver.active){if(this.guide.update(dt,p,this.world.landmarks.find(l=>l.name==='Crystal Grotto'),this.discovered.has('Crystal Grotto')))this.dialogue.trigger('grotto-clue');if(this.environment.period==='night')this.dialogue.trigger('night');if(this.underwater<.1)this.dialogue.trigger('surface');if(Math.hypot(p.x,p.z)>1000)this.dialogue.trigger('far');}this.dialogue.update(dt,this.diver.active);
+    if(this.diver.active&&this.marine.cathedralRay?.root.visible&&observeCathedralRay(this.cathedralObservation,dt,this.marine.cathedralRay.root.position.distanceTo(p),this.diver.velocity.length()))this.dialogue.trigger('cathedral-ray');
     this.readingTimer+=dt;if(this.readingTimer>.35){this.readingTimer=0;this.report();if(this.diver.active){for(const l of this.world.landmarks)if(l.p.distanceTo(p)<l.radius)this.discover(l.name,'Location');if(Math.hypot(p.x,p.z)>180)this.discover(this.world.stream.biomeAt(p.x,p.z),'Habitat');if(p.y>waterHeight(p.x,p.z,this.elapsed))this.discover('Above the Blue','Location');this.marine.nearby(p).forEach(name=>this.discover(name,'Species'));}}
     this.discoveryDelay-=dt;if(this.diver.active&&this.discoveryDelay<=0&&this.discoveryQueue.length){this.callbacks.onDiscover(this.discoveryQueue.shift());this.discoveryDelay=6;}
     this.effects.render();this.frames++;this.performanceTime+=realDt;

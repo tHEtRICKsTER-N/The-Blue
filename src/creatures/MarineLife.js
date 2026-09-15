@@ -1,3 +1,4 @@
+import { cathedralRayPose } from './CathedralEncounter.js';
 import { updateDolphinEncounter } from './DolphinEncounter.js';
 import { BenthicLife } from './BenthicLife.js';
 import * as T from 'three';
@@ -114,6 +115,9 @@ export class MarineLife {
     this.add(scene,makeRay(),{name:'Giant manta ray',center:V(13,14,-26),radius:17,speed:.047,phase:.5,scale:1.15});
     this.add(scene,makeShark(),{name:'Blacktip reef shark',center:V(38,1,-57),radius:28,speed:.043,phase:2.1,scale:.9});
     for(let i=0;i<22;i++){const deep=i>5;this.add(scene,makeJelly(),{name:'Moon jellyfish',center:V((rand()-.5)*24+(deep?8:-25),deep?-27-rand()*10:6+rand()*8,deep?-148+(rand()-.5)*30:-62+(rand()-.5)*20),radius:1.4,speed:.06,phase:i,scale:.5+rand()*.9,jelly:true});}
+    const cathedral=cathedralRayPose(0);
+    this.add(scene,makeRay(),{name:'Reef manta ray',center:V(cathedral.x,cathedral.y,cathedral.z),radius:0,speed:.085,phase:0,scale:.9,cathedral:true});
+    this.cathedralRay=this.animals[this.animals.length-1];
     this.roamingSchools=[];
     for(let i=0;i<4;i++){const s=new FishSchool(scene,{center:[Math.cos(i*1.57)*90,6,Math.sin(i*1.57)*90],count:48,color:['#66becb','#e1c668','#ca779d','#7bc7a3'][i],shape:i%3,speed:1.4+i*.2,name:['Pearly fusiliers','Banded wrasse','Purple anthias','Lagoon damselfish'][i]},obstacles);this.roamingSchools.push(s);this.schools.push(s);}
     for(let i=0;i<3;i++)this.add(scene,makeDolphin(),{name:'Bottlenose dolphin',center:V(55+i*5,22,-95+i*4),radius:24,speed:.12,phase:i*.3,scale:.9,roaming:true,dolphin:true});
@@ -128,7 +132,7 @@ export class MarineLife {
     for(const a of this.animals){if(a.roaming&&a.center.distanceTo(player)>235){const x=player.x+Math.cos(a.phase+1)*120,z=player.z+Math.sin(a.phase+1)*120;a.center.set(x,a.dolphin?22:Math.min(12,Math.max(floorHeight(x,z)+12,player.y-4)),z);if(a.dolphin&&a.root.position.distanceTo(player)>235){a.root.position.copy(a.center);a.encounter={mode:'cruise',calm:0,cooldown:0};}}
       a.root.visible=a.center.distanceToSquared(player)<270*270&&(!a.whale||(t%160>35&&t%160<95));if(!a.root.visible)continue;
       const v=t*a.speed+a.phase;if(a.jelly){a.root.position.set(a.center.x+Math.sin(v)*1.5,a.center.y+Math.sin(t*.35+a.phase)*.9,a.center.z+Math.cos(v));a.bell.scale.set(1+Math.sin(t*2+a.phase)*.08,.72-Math.sin(t*2+a.phase)*.1,1+Math.sin(t*2+a.phase)*.08);a.root.rotation.z=Math.sin(t*.5+a.phase)*.06;}
-      else{if(a.dolphin){
+      else{if(a.cathedral){const pose=cathedralRayPose(t);a.root.position.set(pose.x,pose.y,pose.z);a.root.rotation.y=pose.yaw;}else if(a.dolphin){
         const distance=a.root.position.distanceTo(player);
         const mode=updateDolphinEncounter(a.encounter,dt,distance,diverSpeed);
         a.target.set(a.center.x+Math.cos(v)*a.radius,a.center.y+Math.sin(v*2)*1.1,a.center.z+Math.sin(v)*a.radius*.65);

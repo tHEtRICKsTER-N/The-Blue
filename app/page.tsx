@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, AudioLines, BookOpen, Camera, Compass, Flashlight, Maximize, Pause, VolumeX, Waves } from 'lucide-react';
+import { defaultPreferences, normalizePreferences, loadPreferences, savePreferences, restorePreferences, loadGraphics } from '@/src/core/PlayerPreferences.js';
 import { defaultControls, loadControls, saveControls, bindingLabel } from '@/src/core/Controls.js';
 import { ControlSettings, type ControlPreferences } from '@/components/ControlSettings';
 import { loadNotes, saveNotes } from '@/src/core/FieldNotes.js';
@@ -61,6 +62,11 @@ export default function Home() {
   const [started, setStarted] = useState(false), [paused, setPaused] = useState(false);
   const [photoMode,setPhotoMode]=useState(false);
   const album=usePhotoAlbum();
+  const preferencesRef=useRef(defaultPreferences());
+  const [preferences,setPreferences]=useState(defaultPreferences);
+  const [preferencesSaved,setPreferencesSaved]=useState(true),[graphicsSaved,setGraphicsSaved]=useState(true);
+  function updatePreferences(patch:Partial<ReturnType<typeof defaultPreferences>>){const next=normalizePreferences({...preferencesRef.current,...patch});preferencesRef.current=next;setPreferences(next);try{setPreferencesSaved(savePreferences(window.localStorage,next));}catch{setPreferencesSaved(false);}}
+
   const [controls,setControls]=useState<ControlPreferences>(defaultControls);
   const [controlsSaved,setControlsSaved]=useState(true);
   const [muted, setMuted] = useState(false), [journal, setJournal] = useState(false);
@@ -88,7 +94,12 @@ export default function Home() {
   useEffect(() => {
     let disposed = false;
     let savedGraphics:GraphicsSettings=graphicsPresets.high,savedPreset='high';
-    try { const saved=localStorage.getItem('abyss-graphics');if(saved){const parsed=JSON.parse(saved);savedGraphics={...graphicsPresets.high,...parsed.settings};savedPreset=parsed.preset||'custom';setGraphics(savedGraphics);setGraphicsPreset(savedPreset);} } catch { /* Ignore invalid device-local preferences. */ }
+    try {const loaded=loadGraphics(window.localStorage,graphicsPresets.high,graphicsPresets);savedGraphics=loaded.settings;savedPreset=loaded.preset;setGraphics(savedGraphics);setGraphicsPreset(savedPreset);setGraphicsSaved(loaded.saved);}catch{setGraphicsSaved(false);}
+    let initialPreferences=defaultPreferences();
+    try{const loaded=loadPreferences(window.localStorage);initialPreferences=loaded.settings;setPreferencesSaved(loaded.saved);}catch{setPreferencesSaved(false);}
+    preferencesRef.current=initialPreferences;setPreferences(initialPreferences);
+    setMuted(initialPreferences.muted);setRadioEnabled(initialPreferences.radioEnabled);setCharacter(initialPreferences.character);setSkin(initialPreferences.skin);setWeather(initialPreferences.weather);setPeriod(initialPreferences.period);setHour(initialPreferences.hour);setCycleSpeed(initialPreferences.cycleSpeed);
+    let restoring=true;
     let savedControls=defaultControls();
     try { const loaded=loadControls(window.localStorage);savedControls=loaded.settings;setControls(savedControls);setControlsSaved(loaded.saved); } catch {setControlsSaved(false);}
     let initialNotes:Discovery[]=[];
@@ -98,6 +109,7 @@ export default function Home() {
       if (disposed || !mount.current) return;
       game.current = new Game(mount.current, {
         initialNotes,
+        onPreferences:(patch:Partial<ReturnType<typeof defaultPreferences>>)=>{if(!restoring)updatePreferences(patch);},
         onNotes:(notes:Discovery[])=>{setDiscoveries(notes);try{setNotesSaved(saveNotes(window.localStorage,notes));}catch{setNotesSaved(false);}},
         onGuide:setGuide,
         onDialogue: (line:RadioLine|null)=>{setDialogue(line);if(line)setRadioLog(old=>[...old,line]);},
@@ -110,6 +122,7 @@ export default function Home() {
       });
       game.current.setGraphicsSettings(savedGraphics);
       game.current.setControls(savedControls);
+      restorePreferences(game.current,initialPreferences);restoring=false;
     }).catch(() => setError('The ocean could not load. Please reload with WebGL enabled in your browser.'));
     return () => { disposed = true; game.current?.dispose(); if (timer.current) clearTimeout(timer.current); };
   }, []);
@@ -126,10 +139,10 @@ export default function Home() {
   const capturePhoto = useCallback((aspect:string)=>game.current.takePhoto(aspect) as Promise<Photo>,[]);
   const renderPortrait = useCallback((name:string)=>game.current?.speciesPortrait(name)||null,[]);
   function openJournal() { game.current?.endPhoto();setPhotoMode(false);game.current?.pause(); setJournal(true); }
-  function sound() { setMuted(v => { game.current?.setMuted(!v); return !v; }); }
+  function sound() {const next=!muted;setMuted(next);if(game.current)game.current.setMuted(next);else updatePreferences({muted:next});}
   function applyControls(next:ControlPreferences){setControls(next);game.current?.setControls(next);try{setControlsSaved(saveControls(window.localStorage,next));}catch{setControlsSaved(false);}}
   const keys=(id:string)=>bindingLabel(controls,id);
-  function applyGraphics(next:GraphicsSettings,preset='custom'){setGraphics(next);setGraphicsPreset(preset);game.current?.setGraphicsSettings(next);try{localStorage.setItem('abyss-graphics',JSON.stringify({preset,settings:next}));}catch{/* Storage can be unavailable in private contexts. */}}
+  function applyGraphics(next:GraphicsSettings,preset='custom'){setGraphics(next);setGraphicsPreset(preset);game.current?.setGraphicsSettings(next);try{localStorage.setItem('abyss-graphics',JSON.stringify({preset,settings:next}));setGraphicsSaved(true);}catch{setGraphicsSaved(false);}}
   function updateGraphics<K extends keyof GraphicsSettings>(key:K,value:GraphicsSettings[K]){applyGraphics({...graphics,[key]:value});}
   function choosePreset(preset:string){const next=graphicsPresets[preset];if(next)applyGraphics(next,preset);}
   function chooseHour(value:number){setHour(value);game.current?.setHour(value);setPeriod('custom');}
@@ -171,6 +184,7 @@ export default function Home() {
           <Button className="enter-button menu-resume" disabled={compatibility.isIncompatible} onClick={enter}>{compatibility.isIncompatible ? 'PC required' : 'Resume dive'} <ArrowUpRight size={18}/></Button>
         </nav>
         <div className="menu-pane">
+          <p className="settings-persistence">{preferencesSaved&&graphicsSaved&&controlsSaved?'Settings save automatically in this browser. Field notes and saved photos stay here too.':'Some settings could not be saved. They apply for this visit; allow browser storage to keep them.'}</p>
           {menuTab==='controls'&&<ControlSettings value={controls} onChange={applyControls} saved={controlsSaved}/>}
           {menuTab==='graphics' && <><div className="pane-head"><h2>Graphics</h2><p>Overall quality first — every field below follows the preset until you change one.</p></div>
             <SegmentRow label="Quality preset" hint={graphicsPreset==='custom'?'Custom configuration':'Applies to every setting'} value={graphicsPreset} options={presetOrder} onChange={choosePreset}/>
@@ -223,7 +237,7 @@ export default function Home() {
     </div></section>}
 
     <footer className="bottombar"><div className="coordinates"><span className="tiny-dot" /> {started?'EXPEDITION IN PROGRESS':'THE REEF IS CALLING'}<span className="coordinate-detail">{started ? `${((reading.distance || 0) / 1000).toFixed(2)} km from the reef` : '08° 24′ N · 73° 12′ E'}</span></div><div className="footer-tools"><button className="sound-toggle" onClick={sound} aria-label={muted?'Enable ocean audio':'Mute ocean audio'}>{muted?<VolumeX size={17}/>:<AudioLines size={17}/>}<span>SOUND {muted?'OFF':'ON'}</span></button><span className="divider" /><button onClick={fullscreen} aria-label="Toggle fullscreen"><Maximize size={17}/></button></div></footer>
-    {photoMode&&<PhotoStudio controls={controls} onClose={closePhoto} capture={capturePhoto} aim={aimPhoto} zoom={zoomPhoto} initialFov={graphics.fov} album={album} notes={discoveries}/>}
+    {photoMode&&<PhotoStudio preferences={preferences} onPreferences={updatePreferences} controls={controls} onClose={closePhoto} capture={capturePhoto} aim={aimPhoto} zoom={zoomPhoto} album={album} notes={discoveries}/>}
     <FieldJournal photos={<PhotoGallery album={album} notes={discoveries}/>} attachedPhotos={name=><PhotoGallery album={album} notes={discoveries} noteName={name}/>} open={journal} onOpenChange={setJournal} notes={discoveries} saved={notesSaved} renderPortrait={renderPortrait} guide={<section className="journal-guide" aria-label="Optional discovery"><h3>Follow the blue glow</h3><p>{guide.discovered?'You found Crystal Grotto. Look for its first encounter below.':'Beyond the kelp, a quiet chamber glows blue. Explore whenever you feel ready.'}</p>{!guide.discovered&&<><Button variant="outline" onClick={()=>game.current?.setGuidance(!guide.active)}>{guide.active?'Stop following':'Follow Crystal Grotto'}</Button>{guide.active&&<p>Bearing {Math.round(guide.bearing)}° · {guide.distance} m away · {Math.abs(guide.vertical)<3?'Near your depth':Math.round(Math.abs(guide.vertical))+' m '+(guide.vertical<0?'deeper':'shallower')}. Match your compass to the bearing; choose a clear route around the rocks.</p>}</>}</section>} radio={radioLog.length>0?<section className="radio-log" aria-label="Radio transcript"><h3>Conversations with Mira</h3>{radioLog.map(line=><p key={line.id}><strong>{line.speaker}</strong>{line.text}</p>)}</section>:null}/>
   </main>;
 }
