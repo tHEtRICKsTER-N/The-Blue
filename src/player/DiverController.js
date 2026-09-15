@@ -1,22 +1,34 @@
+import { canonicalKey, normalizeControls, heldControl, matchesControl } from '../core/Controls.js';
 import * as T from 'three';
 import { floorHeight, waterHeight } from '../world/materials.js';
 import { DiverAvatar } from './DiverAvatar.js';
 import { CameraRig } from './CameraRig.js';
 export class DiverController {
   constructor(camera,canvas,world,onPause,onFlashlight,onCameraChange=()=>{}){
-    this.camera=camera;this.canvas=canvas;this.world=world;this.active=false;this.started=false;this.drag=false;this.keys=new Set();this.velocity=new T.Vector3();this.yaw=0;this.pitch=-.07;this.targetYaw=0;this.targetPitch=-.07;this.forward=new T.Vector3();this.right=new T.Vector3();this.acceleration=new T.Vector3();this.next=new T.Vector3();this.delta=new T.Vector3();this.listeners=[];
+    this.controls=normalizeControls();this.camera=camera;this.canvas=canvas;this.world=world;this.active=false;this.started=false;this.drag=false;this.keys=new Set();this.velocity=new T.Vector3();this.yaw=0;this.pitch=-.07;this.targetYaw=0;this.targetPitch=-.07;this.forward=new T.Vector3();this.right=new T.Vector3();this.acceleration=new T.Vector3();this.next=new T.Vector3();this.delta=new T.Vector3();this.listeners=[];
     this.position=new T.Vector3();this.viewAnchor=new T.Object3D();world.scene.add(this.viewAnchor);this.avatar=new DiverAvatar(world.scene);this.rig=new CameraRig(camera,world);this.onCameraChange=onCameraChange;this.orientation=new T.Quaternion();this.bodyRotation=new T.Quaternion();this.bodyPoint=new T.Vector3();this.bodyOffset=new T.Vector3();this.collisionBox=new T.Box3();
     const listen=(target,type,fn)=>{target.addEventListener(type,fn);this.listeners.push(()=>target.removeEventListener(type,fn));};
-    listen(window,'keydown',e=>{if(!this.active)return;if(['Space','ControlLeft','ControlRight','KeyW','KeyA','KeyS','KeyD','KeyC','ShiftLeft','ShiftRight'].includes(e.code)){e.preventDefault();this.keys.add(e.code);}if(e.code==='KeyF'&&!e.repeat)onFlashlight();if(e.code==='KeyV'&&!e.repeat){e.preventDefault();this.toggleCamera();}if(e.code==='Escape'){this.pause();onPause(true);}});
-    listen(window,'keyup',e=>this.keys.delete(e.code));
+    listen(window,'keydown',e=>{
+      if(!this.active||e.defaultPrevented||e.metaKey||e.altKey)return;
+      if(e.target?.closest?.('input,textarea,select,button,[contenteditable="true"],[role="slider"],[role="switch"],[role="combobox"]'))return;
+      if(e.code==='Escape'){e.preventDefault();this.pause();onPause(true);return;}
+      if(Object.entries(this.controls.bindings).some(([id])=>!id.startsWith('photo')&&id!=='capture'&&matchesControl(this.controls,id,e.code))){
+        e.preventDefault();this.keys.add(canonicalKey(e.code));
+        if(!e.repeat&&matchesControl(this.controls,'flashlight',e.code))onFlashlight();
+        if(!e.repeat&&matchesControl(this.controls,'camera',e.code))this.toggleCamera();
+      }
+    });
+    listen(window,'keyup',e=>{const code=canonicalKey(e.code);if((code==='ShiftLeft'&&e.shiftKey)||(code==='ControlLeft'&&e.ctrlKey))return;this.keys.delete(code);});
     listen(document,'pointerlockchange',()=>{if(!document.pointerLockElement&&this.active&&this.hadLock){this.pause();onPause(true);}if(document.pointerLockElement===canvas)this.hadLock=true;});
-    listen(document,'mousemove',e=>{if(!this.active||(!document.pointerLockElement&&!this.drag))return;this.targetYaw-=e.movementX*.0018;this.targetPitch=T.MathUtils.clamp(this.targetPitch-e.movementY*.0016,-1.38,1.38);});
+    listen(document,'mousemove',e=>{if(!this.active||(!document.pointerLockElement&&!this.drag))return;this.targetYaw-=e.movementX*.0018*this.controls.sensitivity;this.targetPitch=T.MathUtils.clamp(this.targetPitch-e.movementY*.0016*this.controls.sensitivity*(this.controls.invertY?-1:1),-1.38,1.38);});
     listen(canvas,'mousedown',()=>{if(this.active){this.drag=true;if(!document.pointerLockElement)this.lock();}});listen(window,'mouseup',()=>this.drag=false);
     listen(window,'blur',()=>{this.keys.clear();if(this.active){this.pause();onPause(true);}});
     this.reset();
   }
+  setControls(settings){this.controls=normalizeControls(settings);this.keys.clear();this.rig.reducedMotion=this.controls.reducedMotion;}
+  held(action){return heldControl(this.controls,action,this.keys);}
   lock(){try{const p=this.canvas.requestPointerLock();if(p?.catch)p.catch(()=>{});}catch{/* Drag-look remains available. */}}
-  start(){this.active=true;this.started=true;this.keys.clear();this.lock();}
+  start(){this.active=true;this.started=true;this.keys.clear();this.canvas.tabIndex=-1;this.canvas.focus({preventScroll:true});this.lock();}
   pause(){this.active=false;this.keys.clear();this.drag=false;if(document.pointerLockElement===this.canvas)document.exitPointerLock();}
   reset(){this.position.set(0,9,26);this.camera.position.copy(this.position);this.velocity.set(0,0,0);this.yaw=this.targetYaw=0;this.pitch=this.targetPitch=-.075;this.rig.distance=0;}
   setCameraMode(mode){this.rig.setMode(mode);this.onCameraChange(mode);}
@@ -26,11 +38,11 @@ export class DiverController {
     if(this.active){
     this.yaw=T.MathUtils.lerp(this.yaw,this.targetYaw,1-Math.exp(-dt*15));this.pitch=T.MathUtils.lerp(this.pitch,this.targetPitch,1-Math.exp(-dt*15));
     this.orientation.setFromEuler(new T.Euler(this.pitch,this.yaw,0,'YXZ'));this.forward.set(0,0,-1).applyQuaternion(this.orientation);this.right.crossVectors(this.forward,this.camera.up).normalize();this.acceleration.set(0,0,0);
-    if(this.keys.has('KeyW'))this.acceleration.add(this.forward);if(this.keys.has('KeyS'))this.acceleration.sub(this.forward);if(this.keys.has('KeyD'))this.acceleration.add(this.right);if(this.keys.has('KeyA'))this.acceleration.sub(this.right);if(this.keys.has('Space'))this.acceleration.y+=1;if(this.keys.has('KeyC')||this.keys.has('ControlLeft')||this.keys.has('ControlRight'))this.acceleration.y-=1;
-    const boost=this.keys.has('ShiftLeft')||this.keys.has('ShiftRight');if(this.acceleration.lengthSq()>0)this.acceleration.normalize().multiplyScalar(boost?15:7.5);
-    this.velocity.addScaledVector(this.acceleration,dt);this.velocity.multiplyScalar(Math.exp(-dt*1.6));this.next.copy(this.position).addScaledVector(this.velocity,dt);this.next.y+=Math.sin(t*.7)*dt*.025;
+    if(this.held('forward'))this.acceleration.add(this.forward);if(this.held('backward'))this.acceleration.sub(this.forward);if(this.held('right'))this.acceleration.add(this.right);if(this.held('left'))this.acceleration.sub(this.right);if(this.held('ascend'))this.acceleration.y+=1;if(this.held('descend'))this.acceleration.y-=1;
+    const boost=this.held('boost');if(this.acceleration.lengthSq()>0)this.acceleration.normalize().multiplyScalar(boost?15:7.5);
+    this.velocity.addScaledVector(this.acceleration,dt);this.velocity.multiplyScalar(Math.exp(-dt*1.6));this.next.copy(this.position).addScaledVector(this.velocity,dt);if(!this.controls.reducedMotion)this.next.y+=Math.sin(t*.7)*dt*.025;
         const surface=waterHeight(this.next.x,this.next.z,t);
-    const diving=this.keys.has('KeyC')||this.keys.has('ControlLeft')||this.keys.has('ControlRight')||(this.keys.has('KeyW')&&this.forward.y<-.25);
+    const diving=this.held('descend')||(this.held('forward')&&this.forward.y<-.25);
     if(this.position.y>surface-.35&&!diving){this.next.y+=(surface+.35-this.next.y)*(1-Math.exp(-dt*5));this.velocity.y*=Math.exp(-dt*5);}
     if(this.next.y>surface+.55){this.next.y=surface+.55;this.velocity.y=Math.min(0,this.velocity.y);}
     if(floorHeight(this.next.x,this.next.z)>surface-1.3){this.next.x=this.position.x;this.next.z=this.position.z;this.velocity.x*=.2;this.velocity.z*=.2;}

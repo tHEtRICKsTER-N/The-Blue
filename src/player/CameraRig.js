@@ -18,7 +18,7 @@ export class CameraRig {
     // Retract immediately at obstructions; ease outward when the path clears.
     this.distance=desired<this.distance?desired:T.MathUtils.lerp(this.distance,desired,1-Math.exp(-dt*7));
     this.camera.position.copy(this.eye).addScaledVector(this.offset.normalize(),this.distance);
-    if(this.mode==='fps'||this.distance<.05)this.camera.rotation.set(pitch+Math.sin(t*.65)*.0018,yaw,0,'YXZ');
+    if(this.mode==='fps'||this.distance<.05)this.camera.rotation.set(pitch+(this.reducedMotion?0:Math.sin(t*.65)*.0018),yaw,0,'YXZ');
     else{this.target.set(0,0,-2.2).applyQuaternion(this.rotation).add(this.eye);this.camera.lookAt(this.target);}
     return this.mode==='fps'||this.distance<.7;
   }

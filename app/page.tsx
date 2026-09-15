@@ -1,11 +1,16 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, AudioLines, BookOpen, Compass, Flashlight, Maximize, Pause, VolumeX, Waves } from 'lucide-react';
+import { ArrowUpRight, AudioLines, BookOpen, Camera, Compass, Flashlight, Maximize, Pause, VolumeX, Waves } from 'lucide-react';
+import { defaultControls, loadControls, saveControls, bindingLabel } from '@/src/core/Controls.js';
+import { ControlSettings, type ControlPreferences } from '@/components/ControlSettings';
 import { loadNotes, saveNotes } from '@/src/core/FieldNotes.js';
 import { destinations } from '@/src/world/ExplorationSites.js';
 import { times, weathers, skinTones } from '@/src/world/Environment.js';
 import { Button } from '@/components/ui/button';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { PhotoStudio } from '@/components/PhotoStudio';
+import { PhotoGallery } from '@/components/PhotoAlbum';
+import { usePhotoAlbum, type Photo } from '@/hooks/use-photo-album';
 import { FieldJournal, type FieldNote } from '@/components/FieldJournal';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
@@ -46,14 +51,18 @@ function SliderRow({label,hint,value,min,max,step,format,onChange}:{label:string
 type RadioLine = {id:number;speaker:string;text:string;topic:string};
 type Discovery = FieldNote;
 type GuideReading = {active:boolean;discovered:boolean;distance:number;bearing:number;vertical:number};
-type MenuTab = 'graphics'|'effects'|'environment'|'diver'|'sites';
-const menuTabs:[MenuTab,string,string][] = [['graphics','Graphics','01'],['effects','Post effects','02'],['environment','Environment','03'],['diver','Diver','04'],['sites','Dive sites','05']];
+type MenuTab = 'controls'|'graphics'|'effects'|'environment'|'diver'|'sites';
+const menuTabs:[MenuTab,string,string][] = [['graphics','Graphics','01'],['effects','Post effects','02'],['environment','Environment','03'],['diver','Diver','04'],['sites','Dive sites','05'],['controls','Controls','06']];
 
 export default function Home() {
   const mount = useRef<HTMLDivElement>(null);
   const game = useRef<any>(null);
   const [ready, setReady] = useState(false), [error, setError] = useState('');
   const [started, setStarted] = useState(false), [paused, setPaused] = useState(false);
+  const [photoMode,setPhotoMode]=useState(false);
+  const album=usePhotoAlbum();
+  const [controls,setControls]=useState<ControlPreferences>(defaultControls);
+  const [controlsSaved,setControlsSaved]=useState(true);
   const [muted, setMuted] = useState(false), [journal, setJournal] = useState(false);
   const [weather,setWeather]=useState('clear'),[period,setPeriod]=useState('day'),[character,setCharacter]=useState('male'),[skin,setSkin]=useState('#b77c55');
   const [hour,setHour]=useState(times.day[1] as number),[cycleSpeed,setCycleSpeed]=useState(0);
@@ -80,6 +89,8 @@ export default function Home() {
     let disposed = false;
     let savedGraphics:GraphicsSettings=graphicsPresets.high,savedPreset='high';
     try { const saved=localStorage.getItem('abyss-graphics');if(saved){const parsed=JSON.parse(saved);savedGraphics={...graphicsPresets.high,...parsed.settings};savedPreset=parsed.preset||'custom';setGraphics(savedGraphics);setGraphicsPreset(savedPreset);} } catch { /* Ignore invalid device-local preferences. */ }
+    let savedControls=defaultControls();
+    try { const loaded=loadControls(window.localStorage);savedControls=loaded.settings;setControls(savedControls);setControlsSaved(loaded.saved); } catch {setControlsSaved(false);}
     let initialNotes:Discovery[]=[];
     try { initialNotes=loadNotes(window.localStorage); } catch { setNotesSaved(false); }
     setDiscoveries(initialNotes);
@@ -98,6 +109,7 @@ export default function Home() {
         },
       });
       game.current.setGraphicsSettings(savedGraphics);
+      game.current.setControls(savedControls);
     }).catch(() => setError('The ocean could not load. Please reload with WebGL enabled in your browser.'));
     return () => { disposed = true; game.current?.dispose(); if (timer.current) clearTimeout(timer.current); };
   }, []);
@@ -107,9 +119,16 @@ export default function Home() {
     setPaused(false);
     game.current?.start();
   }
+  const openPhoto = useCallback(()=>{if(game.current?.beginPhoto())setPhotoMode(true);},[]);
+  const closePhoto = useCallback(()=>{game.current?.endPhoto();setPhotoMode(false);},[]);
+  const aimPhoto = useCallback((x:number,y:number)=>game.current?.aimPhoto(x,y),[]);
+  const zoomPhoto = useCallback((fov:number)=>game.current?.zoomPhoto(fov),[]);
+  const capturePhoto = useCallback((aspect:string)=>game.current.takePhoto(aspect) as Promise<Photo>,[]);
   const renderPortrait = useCallback((name:string)=>game.current?.speciesPortrait(name)||null,[]);
-  function openJournal() { game.current?.pause(); setJournal(true); }
+  function openJournal() { game.current?.endPhoto();setPhotoMode(false);game.current?.pause(); setJournal(true); }
   function sound() { setMuted(v => { game.current?.setMuted(!v); return !v; }); }
+  function applyControls(next:ControlPreferences){setControls(next);game.current?.setControls(next);try{setControlsSaved(saveControls(window.localStorage,next));}catch{setControlsSaved(false);}}
+  const keys=(id:string)=>bindingLabel(controls,id);
   function applyGraphics(next:GraphicsSettings,preset='custom'){setGraphics(next);setGraphicsPreset(preset);game.current?.setGraphicsSettings(next);try{localStorage.setItem('abyss-graphics',JSON.stringify({preset,settings:next}));}catch{/* Storage can be unavailable in private contexts. */}}
   function updateGraphics<K extends keyof GraphicsSettings>(key:K,value:GraphicsSettings[K]){applyGraphics({...graphics,[key]:value});}
   function choosePreset(preset:string){const next=graphicsPresets[preset];if(next)applyGraphics(next,preset);}
@@ -123,7 +142,7 @@ export default function Home() {
   const windLabel = (reading.wind ?? 0) < .2 ? 'light' : (reading.wind ?? 0) < .45 ? 'moderate' : (reading.wind ?? 0) < .75 ? 'fresh' : 'gale';
   // While the clock is running the world owns the hour; the slider just reads it back.
   const shownHour = cycleSpeed > 0 && typeof reading.hour === 'number' ? reading.hour : hour;
-  return <main className={`ocean-app ${started ? 'is-playing' : ''} ${paused ? 'is-paused' : ''} ${dialogue ? 'has-dialogue' : ''} ${compatibility.isIncompatible ? 'is-incompatible' : ''}`}>
+  return <main className={`ocean-app ${started ? 'is-playing' : ''} ${paused ? 'is-paused' : ''} ${photoMode ? 'is-photographing' : ''} ${dialogue ? 'has-dialogue' : ''} ${compatibility.isIncompatible ? 'is-incompatible' : ''}`}>
     <IncompatibleDeviceWarning compatibility={compatibility} />
     <div ref={mount} className="ocean-canvas" aria-label="Interactive three-dimensional underwater world" />
     <div className="edge-shade" />
@@ -134,9 +153,9 @@ export default function Home() {
     {!started && <div className="scene-caption"><span className="caption-line" /><span>01 / CORAL GARDEN<small>Somewhere worth getting lost.</small></span></div>}
     {started && !paused && guide.active && <div className="discovery-bearing">Crystal Grotto · {Math.round(guide.bearing)}° · {guide.distance} m<small>Optional route · manage in Field notes</small></div>}
     <aside className="depth-rail" aria-label="Current depth"><span className="rail-label">{reading.surface ? 'SURFACE' : 'DEPTH'}</span><span className="depth-number">{reading.depth.toFixed(1)}<small>m</small></span><div className="depth-ticks">{Array.from({length:17}, (_,i) => <i key={i} className={i%4===0?'major':''} />)}<b style={{top:`${Math.min(94,reading.depth/90*100)}%`}} /></div><span className="rail-end">{reading.surface ? <>ABOVE<br />THE BLUE</> : <>BELOW<br />THE SURFACE</>}</span></aside>
-    {started && <><div className="compass-strip"><span>NW</span><i /><span>N</span><i /><b>{String(Math.round(reading.heading)).padStart(3,'0')}°</b><i /><span>NE</span><i /><span>E</span></div><div className="crosshair" /><div className="location-hud"><Compass size={17} strokeWidth={1.2} /><div><span>EXPLORING</span><strong>{reading.location}</strong></div></div><div className="hud-bottom">{dialogue && <div className="radio-subtitle" role="status" aria-live="polite" aria-atomic="true"><span className="radio-speaker"><AudioLines size={13}/>{dialogue.speaker === 'Mira'?'MIRA / SURFACE RADIO':'YOU / DIVER'}</span><p>{dialogue.text}</p></div>}<div className="play-tools"><button onClick={() => game.current?.toggleCamera()} aria-label="Switch camera view"><kbd>V</kbd> {reading.cameraMode === 'fps' ? 'First person' : 'Third person'}</button><button onClick={openJournal}><BookOpen size={18} /> Field notes <span>{discoveries.length}</span></button><button className={reading.flashlight?'active':''} onClick={() => game.current?.toggleFlashlight()}><Flashlight size={18} /><kbd>F</kbd></button></div><div className="controls-hint"><span><kbd>W A S D</kbd> Swim</span><span><kbd>SPACE</kbd> Surface</span><span><kbd>C</kbd> Dive</span><span><kbd>SHIFT</kbd> Glide faster</span><span><kbd>V</kbd> Switch view</span><span>Mouse to look</span></div></div>{toast && <div className="discovery-toast" role="status"><span className="discovery-symbol">✧</span><p>{toast.kind.toUpperCase()} DISCOVERED</p><h2>{toast.name}</h2><span>Added to your field notes</span></div>}</>}
+    {started && <><div className="compass-strip"><span>NW</span><i /><span>N</span><i /><b>{String(Math.round(reading.heading)).padStart(3,'0')}°</b><i /><span>NE</span><i /><span>E</span></div><div className="crosshair" /><div className="location-hud"><Compass size={17} strokeWidth={1.2} /><div><span>EXPLORING</span><strong>{reading.location}</strong></div></div><div className="hud-bottom">{dialogue && <div className="radio-subtitle" role="status" aria-live="polite" aria-atomic="true"><span className="radio-speaker"><AudioLines size={13}/>{dialogue.speaker === 'Mira'?'MIRA / SURFACE RADIO':'YOU / DIVER'}</span><p>{dialogue.text}</p></div>}<div className="play-tools"><button onClick={() => game.current?.toggleCamera()} aria-label="Switch camera view"><kbd>{keys('camera')}</kbd> {reading.cameraMode === 'fps' ? 'First person' : 'Third person'}</button><button onClick={openPhoto}><Camera size={18}/> Photo mode</button><button onClick={openJournal}><BookOpen size={18} /> Field notes <span>{discoveries.length}</span></button><button className={reading.flashlight?'active':''} onClick={() => game.current?.toggleFlashlight()}><Flashlight size={18} /><kbd>{keys('flashlight')}</kbd></button></div><div className="controls-hint"><span><kbd>{['forward','left','backward','right'].map(keys).join(' · ')}</kbd> Swim</span><span><kbd>{keys('ascend')}</kbd> Surface</span><span><kbd>{keys('descend')}</kbd> Dive</span><span><kbd>{keys('boost')}</kbd> Glide faster</span><span><kbd>{keys('camera')}</kbd> Switch view</span><span>Mouse to look</span></div></div>{toast && <div className="discovery-toast" role="status"><span className="discovery-symbol">✧</span><p>{toast.kind.toUpperCase()} DISCOVERED</p><h2>{toast.name}</h2><span>Added to your field notes</span></div>}</>}
 
-    {started && paused && !journal && <section className="pause-screen" aria-label="Expedition settings"><div className="menu-shell">
+    {started && paused && !journal && !photoMode && <section className="pause-screen" aria-label="Expedition settings"><div className="menu-shell">
       <header className="menu-head">
         <div className="menu-brand"><Waves size={18} strokeWidth={1.4}/><b>ABYSS</b><span>Expedition control</span></div>
         <div className="menu-telemetry" aria-label="Render telemetry">
@@ -152,6 +171,7 @@ export default function Home() {
           <Button className="enter-button menu-resume" disabled={compatibility.isIncompatible} onClick={enter}>{compatibility.isIncompatible ? 'PC required' : 'Resume dive'} <ArrowUpRight size={18}/></Button>
         </nav>
         <div className="menu-pane">
+          {menuTab==='controls'&&<ControlSettings value={controls} onChange={applyControls} saved={controlsSaved}/>}
           {menuTab==='graphics' && <><div className="pane-head"><h2>Graphics</h2><p>Overall quality first — every field below follows the preset until you change one.</p></div>
             <SegmentRow label="Quality preset" hint={graphicsPreset==='custom'?'Custom configuration':'Applies to every setting'} value={graphicsPreset} options={presetOrder} onChange={choosePreset}/>
             <SliderRow label="Render resolution" hint="Above 100% supersamples, then downscales — the sharpest option" value={graphics.renderScale} min={.5} max={2} step={.05} format={v=>`${Math.round(v*100)}%`} onChange={v=>updateGraphics('renderScale',v)}/>
@@ -193,16 +213,17 @@ export default function Home() {
         </div>
       </div>
       <footer className="menu-foot">
-        <p className="menu-keys"><span><kbd>WASD</kbd>Swim</span><span><kbd>Space</kbd>Surface</span><span><kbd>C</kbd>Dive</span><span><kbd>Shift</kbd>Boost</span><span><kbd>F</kbd>Light</span><span><kbd>V</kbd>Camera</span></p>
+        <p className="menu-keys"><span><kbd>{['forward','left','backward','right'].map(keys).join(' · ')}</kbd>Swim</span><span><kbd>{keys('ascend')}</kbd>Surface</span><span><kbd>{keys('descend')}</kbd>Dive</span><span><kbd>{keys('boost')}</kbd>Boost</span><span><kbd>{keys('flashlight')}</kbd>Light</span><span><kbd>{keys('camera')}</kbd>Camera</span></p>
         <div className="menu-foot-actions">
-          <button type="button" onClick={()=>choosePreset('high')}>Restore defaults</button>
-          <button type="button" onClick={openJournal}><BookOpen size={15}/> Field notes</button>
+          <button type="button" onClick={()=>choosePreset('high')}>Restore graphics defaults</button>
+          <button type="button" onClick={openPhoto}><Camera size={15}/> Photo mode</button><button type="button" onClick={openJournal}><BookOpen size={15}/> Field notes</button>
           <button type="button" disabled={compatibility.isIncompatible} onClick={()=>{if(compatibility.isIncompatible)return;game.current?.returnToReef();enter();}}>Return to reef</button>
         </div>
       </footer>
     </div></section>}
 
     <footer className="bottombar"><div className="coordinates"><span className="tiny-dot" /> {started?'EXPEDITION IN PROGRESS':'THE REEF IS CALLING'}<span className="coordinate-detail">{started ? `${((reading.distance || 0) / 1000).toFixed(2)} km from the reef` : '08° 24′ N · 73° 12′ E'}</span></div><div className="footer-tools"><button className="sound-toggle" onClick={sound} aria-label={muted?'Enable ocean audio':'Mute ocean audio'}>{muted?<VolumeX size={17}/>:<AudioLines size={17}/>}<span>SOUND {muted?'OFF':'ON'}</span></button><span className="divider" /><button onClick={fullscreen} aria-label="Toggle fullscreen"><Maximize size={17}/></button></div></footer>
-    <FieldJournal open={journal} onOpenChange={setJournal} notes={discoveries} saved={notesSaved} renderPortrait={renderPortrait} guide={<section className="journal-guide" aria-label="Optional discovery"><h3>Follow the blue glow</h3><p>{guide.discovered?'You found Crystal Grotto. Look for its first encounter below.':'Beyond the kelp, a quiet chamber glows blue. Explore whenever you feel ready.'}</p>{!guide.discovered&&<><Button variant="outline" onClick={()=>game.current?.setGuidance(!guide.active)}>{guide.active?'Stop following':'Follow Crystal Grotto'}</Button>{guide.active&&<p>Bearing {Math.round(guide.bearing)}° · {guide.distance} m away · {Math.abs(guide.vertical)<3?'Near your depth':Math.round(Math.abs(guide.vertical))+' m '+(guide.vertical<0?'deeper':'shallower')}. Match your compass to the bearing; choose a clear route around the rocks.</p>}</>}</section>} radio={radioLog.length>0?<section className="radio-log" aria-label="Radio transcript"><h3>Conversations with Mira</h3>{radioLog.map(line=><p key={line.id}><strong>{line.speaker}</strong>{line.text}</p>)}</section>:null}/>
+    {photoMode&&<PhotoStudio controls={controls} onClose={closePhoto} capture={capturePhoto} aim={aimPhoto} zoom={zoomPhoto} initialFov={graphics.fov} album={album} notes={discoveries}/>}
+    <FieldJournal photos={<PhotoGallery album={album} notes={discoveries}/>} attachedPhotos={name=><PhotoGallery album={album} notes={discoveries} noteName={name}/>} open={journal} onOpenChange={setJournal} notes={discoveries} saved={notesSaved} renderPortrait={renderPortrait} guide={<section className="journal-guide" aria-label="Optional discovery"><h3>Follow the blue glow</h3><p>{guide.discovered?'You found Crystal Grotto. Look for its first encounter below.':'Beyond the kelp, a quiet chamber glows blue. Explore whenever you feel ready.'}</p>{!guide.discovered&&<><Button variant="outline" onClick={()=>game.current?.setGuidance(!guide.active)}>{guide.active?'Stop following':'Follow Crystal Grotto'}</Button>{guide.active&&<p>Bearing {Math.round(guide.bearing)}° · {guide.distance} m away · {Math.abs(guide.vertical)<3?'Near your depth':Math.round(Math.abs(guide.vertical))+' m '+(guide.vertical<0?'deeper':'shallower')}. Match your compass to the bearing; choose a clear route around the rocks.</p>}</>}</section>} radio={radioLog.length>0?<section className="radio-log" aria-label="Radio transcript"><h3>Conversations with Mira</h3>{radioLog.map(line=><p key={line.id}><strong>{line.speaker}</strong>{line.text}</p>)}</section>:null}/>
   </main>;
 }

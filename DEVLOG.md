@@ -4,6 +4,84 @@ This document tracks technical decisions, architecture milestones, and deploymen
 
 ---
 
+## [2026-09-15] — Configurable controls — implemented locally
+
+Added a Controls section to expedition settings at the user's request, bringing
+forward the controls portion of milestone 5. Dive movement, boost, flashlight,
+camera switching, photo aiming and capture each support primary and alternate
+keys. Escape stays fixed for pause/exit and assignment cancellation. Duplicate
+keys are rejected within a mode; dive and photo mode can share keys. Primary
+bindings remain assigned, alternate bindings can be cleared, and control defaults
+can be restored independently of graphics.
+
+Preferences use abyss-controls in localStorage, with validated loading, safe
+fallbacks and a visible session-only notice if persistence fails. Mouse sensitivity
+(0.2–3×), inverted vertical look, and reduced camera sway/bob apply immediately.
+Keys use physical positions; either Ctrl/Shift side works. Keyboard focus moves to
+the game canvas on resume, and pause/blur/remapping clears held input. HUD/menu and
+photo shortcut hints reflect current bindings. Text fields and control widgets
+retain their native keyboard interaction.
+
+Validation: test:controls passed with the actual DiverController listeners and
+movement, primary/alternate reassignment, conflicts, storage failure/corruption,
+sensitivity/inversion, reduced sway and pause cleanup. Existing exploration and
+photography suites passed. TypeScript noEmit and targeted lint passed. Static Vite
+production build passed (existing large-bundle warning); Sites build helper still
+fails because the local npm shim references missing node_modules/npm files.
+Browser interaction/visual review of the new Controls panel remains unperformed.
+Changes remain local; no commit or deployment.
+
+## [2026-09-15] — Underwater photography — implemented locally
+
+Completed milestone 3 of PLAN.md. Photo mode is available from both the swimming
+controls and pause menu. It pauses the scene and audio, releases the mouse, hides
+the diver and HUD, and offers aim arrows, a 25–100 degree lens, framing grid and
+original / 16:9 / square crop. K captures; Escape returns to the paused dive menu.
+The original camera pose, field of view and diver visibility are restored on exit.
+
+Implementation:
+- Photography.js renders and immediately copies the WebGL canvas into a 2D canvas,
+  then encodes JPEG at quality 0.9. Longest edge is limited to 1920 pixels without
+  upscaling. The normal renderer does not need preserveDrawingBuffer enabled.
+  UI overlays are never part of the canvas copy. Captures check for lost contexts.
+- PhotoAlbum.js uses a separate IndexedDB database for JPEG blobs and metadata.
+  Capacity checks and writes share a read/write transaction: max 24 photos, 48 MiB
+  total, and 5 MiB per photo. A full album never evicts an existing photo silently.
+  Invalid records are filtered; unavailable/blocked storage produces a usable error.
+- PhotoStudio.tsx offers capture review, optional field-note selection, save and
+  download. Saving is explicit; the current draft remains downloadable if saving
+  fails. An unsaved draft is temporary and replaced by another capture or closing
+  photo mode. No uploads, camera permissions or external storage are used.
+- PhotoAlbum.tsx adds the Photos tab and attached photos inside individual journal
+  entries. Photos can be downloaded, reattached, or deleted after a confirmation.
+  use-photo-album.ts refreshes the album after writes and when the window gains focus.
+  Blob preview URLs are released when their image components unmount.
+
+Verification:
+- PASS: node scripts/check-photography.mjs — crop coordinates/resolution caps,
+  count/byte/per-photo limits, invalid records, unavailable storage, camera and
+  avatar restoration, immediate canvas copying, and lost-context rejection.
+- PASS: existing exploration checks remain green.
+- PASS: static production build via the existing Vite configuration. The existing
+  large-bundle warning remains. git diff --check is clean.
+- Browser: captured 900x900 square and 1600x900 wide images, adjusted the lens to
+  25 degrees and verified the menu returns to 68 degrees. Final capture view hides
+  the diver. Saved one test image attached to Coral Garden; both the album and its
+  attachment survived a page reload. Confirmed the download exists as a JPEG in
+  Downloads. Delete confirmation/cancellation checked; actual deletion not exercised.
+- Browser error log empty. New photo modules and test have no lint diagnostics;
+  seven existing diagnostics in app/page.tsx and Game.js remain.
+- The browser was background-throttled; these checks are not a frame-rate benchmark.
+
+Handoff:
+- Next implementation milestone: distinctive encounters at the existing destinations.
+- Earlier grotto-route/dolphin-motion and species-portrait visual reviews remain open.
+- Album data stays in this browser and may be lost if browser data is cleared or
+  evicted. Download photos to keep independent copies. No cloud sync is implemented.
+- No deployment or commit was performed for this photography work.
+
+---
+
 ## [2026-09-14] — Field guide and dive history — implemented locally
 
 Continued the approved roadmap with milestone 2. Kept the dark ocean-console style,

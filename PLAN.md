@@ -32,9 +32,12 @@ rendering and the expanded journal still need visual review before release.
 
 ## Milestone 3 — Underwater photography
 
-- Hide HUD, frame photographs, capture and download snapshots.
-- Attach photos to field notes; design storage limits and deletion controls before
-  introducing a local photo library.
+- [x] Pause the scene, hide the HUD and diver, aim and zoom, choose original / 16:9 / square framing, capture and download JPEGs.
+- [x] Local photo album with optional field-note attachments, 24-photo / 48 MB limits, and per-photo deletion confirmation.
+
+Implemented locally on 2026-09-15. Browser checks confirmed square and wide captures,
+zoom, save and attachment persistence after reload, download, and deletion cancellation.
+Photos use browser-local storage; downloads remain available when album saving fails.
 
 ## Milestone 4 — Distinct destinations and wildlife
 
@@ -45,7 +48,7 @@ rendering and the expanded journal still need visual review before release.
 
 ## Milestone 5 — Comfort and performance
 
-- Mouse sensitivity, remappable controls and reduced camera motion.
+- [x] Mouse sensitivity, remappable dive and photo keys, invert vertical look, and reduced camera motion. Implemented locally on 2026-09-15 with saved preferences, conflict checks, alternate bindings, and restore defaults.
 - Fix adaptive-resolution recovery on displays capped at 60 Hz; measure frame
   pacing before expanding optimization scope.
 - Assess controller support, device defaults and accessibility after desktop polish.

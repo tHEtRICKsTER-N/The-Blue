@@ -1,3 +1,4 @@
+import { captureFrame } from './Photography.js';
 import { recordEncounter } from './FieldNotes.js';
 import { renderSpecimenPortrait } from '../creatures/SpecimenPortrait.js';
 import { DiscoveryGuide } from './DiscoveryGuide.js';
@@ -36,6 +37,7 @@ export class Game {
   start(){this.dialogue.trigger('welcome');this.diver.start();this.audio.start();this.audio.setMuted(!!this.muted);this.callbacks.onPause(false);}
   pause(){this.diver.pause();this.audio.pause();this.callbacks.onPause(true);}
   returnToReef(){this.diver.reset();}
+  setControls(settings){this.diver.setControls(settings);}
   setCameraMode(mode){this.diver.setCameraMode(mode);}
   toggleCamera(){this.diver.toggleCamera();}
   toggleFlashlight(){this.effects.toggleFlashlight();this.report();}
@@ -87,6 +89,31 @@ export class Game {
     if(next===this.dynamicScale)return;
     this.dynamicScale=next;if(this.applyPixelRatio())this.resize();
   }
+  beginPhoto(){
+    if(!this.diver.started||this.disposed||this.photoState)return false;
+    this.pause();
+    this.photoState={position:this.camera.position.clone(),quaternion:this.camera.quaternion.clone(),fov:this.camera.fov,avatarVisible:this.diver.avatar.root.visible};
+    this.diver.avatar.root.visible=false;
+    return true;
+  }
+  endPhoto(){
+    if(!this.photoState)return;
+    this.camera.position.copy(this.photoState.position);this.camera.quaternion.copy(this.photoState.quaternion);
+    this.camera.fov=this.photoState.fov;this.camera.updateProjectionMatrix();this.diver.avatar.root.visible=this.photoState.avatarVisible;this.photoState=null;
+  }
+  aimPhoto(horizontal,vertical){
+    if(!this.photoState)return;
+    const angle=new T.Euler().setFromQuaternion(this.camera.quaternion,'YXZ');
+    angle.y-=horizontal*.045;angle.x=T.MathUtils.clamp(angle.x-vertical*.045,-1.38,1.38);
+    this.camera.quaternion.setFromEuler(angle);
+  }
+  zoomPhoto(fov){if(this.photoState&&Number.isFinite(fov)){this.camera.fov=T.MathUtils.clamp(fov,25,100);this.camera.updateProjectionMatrix();}}
+  async takePhoto(aspect){
+    if(!this.photoState||this.disposed)throw new Error('Open photo mode before taking a photograph.');
+    const metadata={id:crypto.randomUUID(),takenAt:new Date().toISOString(),location:this.location||'Open Ocean',depth:Math.max(0,waterHeight(this.diver.position.x,this.diver.position.z,this.elapsed)-this.diver.position.y),noteName:''};
+    const frame=await captureFrame(this.renderer,()=>this.effects.render(),aspect);
+    return {...metadata,...frame};
+  }
   speciesPortrait(name){
     if(this.disposed)return null;
     if(!this.portraits.has(name))this.portraits.set(name,renderSpecimenPortrait(this.renderer,this.marine,name));
@@ -104,7 +131,9 @@ export class Game {
   }
   report(){const p=this.diver.position;let closest=this.world.stream.biomeAt(p.x,p.z),distance=Infinity;for(const l of this.world.landmarks){const d=l.p.distanceTo(p);if(d<l.radius&&d<distance){closest=l.name;distance=d;}}if(p.y<-37&&distance===Infinity)closest='Twilight Depths';const surface=p.y>waterHeight(p.x,p.z,this.elapsed)-.15;if(surface&&distance===Infinity)closest='Open Ocean · Surface';this.location=closest;const buffer=this.renderer.domElement;this.callbacks.onGuide?.(this.guide.reading(p,this.world.landmarks.find(l=>l.name==='Crystal Grotto'),this.discovered.has('Crystal Grotto')));this.callbacks.onReading({depth:Math.max(0,waterHeight(p.x,p.z,this.elapsed)-p.y),heading:((T.MathUtils.radToDeg(-this.diver.yaw)%360)+360)%360,location:closest,fps:this.fps,frameTime:this.frameTime||0,resolution:`${buffer.width}×${buffer.height}`,renderScale:this.graphics.renderScale*this.dynamicScale,autoWeather:this.environment.auto,weather:this.environment.weather,wind:this.environment.windSpeed,hour:this.environment.hour,flashlight:this.effects.flashlight.intensity>0,cameraMode:this.diver.rig.mode,quality:this.quality,surface,distance:Math.hypot(p.x,p.z-26)});}
   loop(now){
-    if(this.disposed)return;const realDt=(now-this.last)/1000,dt=Math.min(.05,realDt);this.last=now;const running=!this.diver.started||this.diver.active;if(running)this.elapsed+=dt;time.value=this.elapsed;
+    if(this.disposed)return;
+    if(this.photoState){this.last=now;this.effects.render();this.frame=requestAnimationFrame(next=>this.loop(next));return;}
+    const realDt=(now-this.last)/1000,dt=Math.min(.05,realDt);this.last=now;const running=!this.diver.started||this.diver.active;if(running)this.elapsed+=dt;time.value=this.elapsed;
     this.world.stream.update(this.diver.position);this.diver.update(dt,this.elapsed);const p=this.diver.position;const depth=T.MathUtils.smoothstep(27-this.camera.position.y,24,105);
     const cave=Math.abs(p.x+42)<7&&p.z<-104&&p.z>-131&&p.y<-13?1:0;this.caveLight=T.MathUtils.lerp(this.caveLight||0,cave,1-Math.exp(-dt*2));const dark=Math.max(depth,this.caveLight*.9);
     const cp=this.camera.position,waterline=waterHeight(cp.x,cp.z,this.elapsed);this.underwater=1-T.MathUtils.smoothstep(cp.y-waterline,-.15,.12);

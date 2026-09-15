@@ -12,7 +12,9 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "build:static": "vite build --config vite.static.config.mjs",
-    "test:exploration": "node scripts/check-exploration.mjs"
+    "test:exploration": "node scripts/check-exploration.mjs",
+    "test:photography": "node scripts/check-photography.mjs",
+    "test:controls": "node scripts/check-controls.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

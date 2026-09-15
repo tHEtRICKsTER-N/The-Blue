@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import * as T from 'three';
+import { photoCrop, photoCapacity, PHOTO_BYTES, PHOTO_MAX_BYTES, photoFilename, captureFrame } from '../src/core/Photography.js';
+import { loadPhotos, validPhoto } from '../src/core/PhotoAlbum.js';
+import { Game } from '../src/core/Game.js';
+
+assert.deepEqual(photoCrop(2560,1440,'original'),{x:0,y:0,width:2560,height:1440,outputWidth:1920,outputHeight:1080});
+assert.deepEqual(photoCrop(1600,900,'square'),{x:350,y:0,width:900,height:900,outputWidth:900,outputHeight:900});
+const wide=photoCrop(1200,900,'wide');assert.equal(wide.y,112.5);assert.equal(wide.outputHeight,675);
+assert.throws(()=>photoCrop(0,0),/not ready/);
+const blob=new Blob(['jpeg-test'],{type:'image/jpeg'});
+assert.equal(photoCapacity([],blob),null);
+assert.equal(validPhoto({blob}),false,'Ignore malformed persisted photos');
+assert.match(photoCapacity(Array.from({length:24},()=>({blob})),blob),/24 photos/);
+assert.match(photoCapacity([{blob:{size:PHOTO_BYTES}}],blob),/48 MB/);
+assert.match(photoCapacity([],new Blob([new Uint8Array(PHOTO_MAX_BYTES+1)],{type:'image/jpeg'})),/too large/);
+assert.match(photoCapacity([],new Blob([],{type:'image/jpeg'})),/could not/);
+assert.equal(photoFilename({location:'Coral Garden',takenAt:'2026-09-14T10:00:00.000Z'}),'abyss-coral-garden-2026-09-14T10-00-00-000Z.jpg');
+await assert.rejects(loadPhotos(),/storage is unavailable/,'Blocked storage does not crash the game');
+
+const camera=new T.PerspectiveCamera(68,16/9,.1,1000);camera.position.set(3,9,-12);camera.rotation.set(.2,.8,0,'YXZ');
+const initialPosition=camera.position.clone(),initialQuaternion=camera.quaternion.clone();
+const game={camera,diver:{started:true,avatar:{root:{visible:true}}},pause(){this.paused=true;}};
+assert.equal(Game.prototype.beginPhoto.call(game),true);assert.equal(game.diver.avatar.root.visible,false,'Keep the diver out of the photograph');assert.equal(game.paused,true);
+assert.equal(Game.prototype.beginPhoto.call(game),false,'Opening twice cannot overwrite the original camera state');
+Game.prototype.aimPhoto.call(game,1,-1);Game.prototype.zoomPhoto.call(game,25);
+assert.ok(!camera.quaternion.equals(initialQuaternion));assert.equal(camera.fov,25);
+Game.prototype.endPhoto.call(game);
+assert.deepEqual(camera.position.toArray(),initialPosition.toArray());assert.deepEqual(camera.quaternion.toArray(),initialQuaternion.toArray());assert.equal(camera.fov,68);
+assert.equal(game.diver.avatar.root.visible,true,'Restore diver visibility');
+assert.equal(game.paused,true,'Returning to the menu does not unexpectedly resume swimming');
+
+let rendered=false,drawArgs;
+const canvas={width:0,height:0,getContext:()=>({drawImage(...args){assert.equal(rendered,true,'Render before copying WebGL canvas');drawArgs=args;}}),toBlob(callback){callback(blob);}};
+Object.defineProperty(globalThis,'document',{configurable:true,value:{createElement:()=>canvas}});
+const renderer={domElement:{width:1600,height:900},getContext:()=>({isContextLost:()=>false})};
+const photo=await captureFrame(renderer,()=>{rendered=true;},'square');
+assert.equal(photo.blob,blob);assert.equal(photo.width,900);assert.equal(photo.height,900);
+assert.deepEqual(drawArgs.slice(1),[350,0,900,900,0,0,900,900]);
+renderer.getContext=()=>({isContextLost:()=>true});await assert.rejects(captureFrame(renderer,()=>{},'wide'),/unavailable/);
+delete globalThis.document;
+console.log('PASS: crop dimensions and size cap, album limits, unavailable storage, original camera restoration, immediate canvas copy, and lost-context capture handling.');

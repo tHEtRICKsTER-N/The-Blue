@@ -10,7 +10,7 @@ import { fieldGuideEntry, filterNotes, diveHistory } from '@/src/core/FieldGuide
 
 export type Encounter = {at:string|null;location:string;depth:number;diveId:string};
 export type FieldNote = {name:string;kind:string;location:string;depth:number;firstSeen:string|null;encounters?:Encounter[]};
-const categories = [['All','All notes'],['Species','Species'],['Location','Locations'],['Habitat','Habitats'],['History','Dive history']];
+const categories = [['All','All notes'],['Species','Species'],['Location','Locations'],['Habitat','Habitats'],['History','Dive history'],['Photos','Photos']];
 const dateLabel = (value:string|null) => value ? new Date(value).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : 'Date not recorded';
 
 function Specimen({name,renderPortrait}:{name:string;renderPortrait:(name:string)=>string|null}) {
@@ -32,7 +32,7 @@ function Specimen({name,renderPortrait}:{name:string;renderPortrait:(name:string
   </figure>;
 }
 
-function Entry({note,renderPortrait}:{note:FieldNote;renderPortrait:(name:string)=>string|null}) {
+function Entry({note,renderPortrait,photos}:{note:FieldNote;renderPortrait:(name:string)=>string|null;photos:ReactNode}) {
   const entry = fieldGuideEntry(note);
   return <article className="field-detail" aria-label={`${note.name} field note`}>
     {note.kind==='Species' ? <Specimen name={note.name} renderPortrait={renderPortrait}/> :
@@ -47,16 +47,17 @@ function Entry({note,renderPortrait}:{note:FieldNote;renderPortrait:(name:string
       {!!note.encounters?.length&&<details className="field-encounters"><summary>Recorded encounters ({note.encounters.length})</summary><ol>
         {[...note.encounters].reverse().map(encounter=><li key={encounter.diveId}><time dateTime={encounter.at||undefined}>{dateLabel(encounter.at)}</time><span>{encounter.location} · {Math.round(encounter.depth)} m</span></li>)}
       </ol></details>}
+      {photos}
     </div>
   </article>;
 }
 
 type Props = {
   open:boolean;onOpenChange:(value:boolean)=>void;notes:FieldNote[];saved:boolean;
-  renderPortrait:(name:string)=>string|null;guide:ReactNode;radio:ReactNode;
+  renderPortrait:(name:string)=>string|null;guide:ReactNode;radio:ReactNode;photos:ReactNode;attachedPhotos:(name:string)=>ReactNode;
 };
 
-export function FieldJournal({open,onOpenChange,notes,saved,renderPortrait,guide,radio}:Props) {
+export function FieldJournal({open,onOpenChange,notes,saved,renderPortrait,guide,radio,photos,attachedPhotos}:Props) {
   const [category,setCategory] = useState('All');
   const [query,setQuery] = useState('');
   const [selectedName,setSelectedName] = useState('');
@@ -65,7 +66,7 @@ export function FieldJournal({open,onOpenChange,notes,saved,renderPortrait,guide
   const history = diveHistory(notes) as {id:string;at:string|null;entries:(Encounter & {name:string;kind:string})[]}[];
   const browse = !notes.length ? <div className="field-empty"><Waves size={32} aria-hidden="true"/><h3>Your first page is waiting</h3><p>Swim close to marine life or explore a new place. Your encounters will appear here.</p></div> :
     !visible.length ? <div className="field-empty"><h3>No matching field notes</h3><p>Try another name or place, or choose a different category.</p></div> :
-    <div className="field-browser"><nav className="field-list" aria-label="Discovered field notes">{visible.map(note=><button key={note.name} type="button" aria-current={note===selected?'true':undefined} onClick={()=>setSelectedName(note.name)}><span>{note.kind}</span><strong>{note.name}</strong><small>{note.location}</small></button>)}</nav>{selected&&<Entry note={selected} renderPortrait={renderPortrait}/>}</div>;
+    <div className="field-browser"><nav className="field-list" aria-label="Discovered field notes">{visible.map(note=><button key={note.name} type="button" aria-current={note===selected?'true':undefined} onClick={()=>setSelectedName(note.name)}><span>{note.kind}</span><strong>{note.name}</strong><small>{note.location}</small></button>)}</nav>{selected&&<Entry note={selected} renderPortrait={renderPortrait} photos={attachedPhotos(selected.name)}/>}</div>;
 
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="journal-panel field-journal">
     <header className="field-heading"><div><DialogTitle className="journal-title">Field notes</DialogTitle><DialogDescription className="journal-description">Small encounters. A bigger world.</DialogDescription></div><span className="field-total">{notes.length} {notes.length===1?'discovery':'discoveries'}</span></header>
@@ -73,12 +74,13 @@ export function FieldJournal({open,onOpenChange,notes,saved,renderPortrait,guide
     <details className="field-guide-disclosure"><summary>Optional exploration · Crystal Grotto</summary>{guide}</details>
     <Tabs value={category} onValueChange={value=>{if(typeof value==='string')setCategory(value);}}>
       <TabsList className="field-tabs" variant="line" aria-label="Browse field notes">{categories.map(([value,label])=><TabsTrigger key={value} value={value}>{label}</TabsTrigger>)}</TabsList>
-      {category!=='History'&&<div className="field-search"><label htmlFor="field-search">Find a discovery</label><Input id="field-search" type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search names, places or habitats"/><output>{visible.length} {visible.length===1?'note':'notes'}</output></div>}
-      {categories.filter(([value])=>value!=='History').map(([value])=><TabsContent key={value} value={value}>{browse}</TabsContent>)}
+      {category!=='History'&&category!=='Photos'&&<div className="field-search"><label htmlFor="field-search">Find a discovery</label><Input id="field-search" type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search names, places or habitats"/><output>{visible.length} {visible.length===1?'note':'notes'}</output></div>}
+      {categories.filter(([value])=>value!=='History'&&value!=='Photos').map(([value])=><TabsContent key={value} value={value}>{browse}</TabsContent>)}
       <TabsContent value="History"><div className="field-history">
         <p className="field-history-help">One entry per discovery in each dive. Recent encounters are kept alongside your first sighting.</p>
         {history.length?history.map(dive=><section key={dive.id}><h3>{dive.id==='earlier'?'Earlier discoveries':dateLabel(dive.at)}{dive.id!=='earlier'&&dive.at&&<small>{new Date(dive.at).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</small>}</h3><ul>{dive.entries.map(entry=><li key={entry.name}><button type="button" onClick={()=>{setQuery('');setCategory('All');setSelectedName(entry.name);}}>{entry.name}</button><span>{entry.location} · {Math.round(entry.depth)} m</span></li>)}</ul></section>):<div className="field-empty"><h3>Your dives will leave a trail</h3><p>Discover a place or animal to begin recording your visits.</p></div>}
       </div></TabsContent>
+      <TabsContent value="Photos">{photos}</TabsContent>
     </Tabs>
     {radio&&<details className="field-radio"><summary>Conversations with Mira · this dive</summary>{radio}</details>}
   </DialogContent></Dialog>;
