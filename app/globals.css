@@ -390,3 +390,8 @@ kbd{font-family:var(--mono);font-size:9px;padding:3px 5px;border:1px solid var(-
 .menu-keys,.controls-hint{flex-wrap:wrap}.menu-keys kbd,.controls-hint kbd{white-space:normal}
 
 .settings-persistence{font-size:12px;line-height:1.6;color:var(--muted-text);margin:0 0 20px;padding-bottom:12px;border-bottom:1px solid var(--rule)}
+
+/* Keyboard navigation and player-selected motion comfort. */
+.menu-nav .menu-resume{width:calc(100% - 32px);flex-shrink:0}
+.ocean-app button:focus-visible{outline:2px solid var(--sand);outline-offset:3px}
+.reduces-motion .menu-shell,.reduces-motion .start-screen,.reduces-motion .discovery-toast{animation:none}

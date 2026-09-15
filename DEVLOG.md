@@ -4,6 +4,34 @@ This document tracks technical decisions, architecture milestones, and deploymen
 
 ---
 
+## [2026-09-15] — Keyboard accessibility and remaining-release assessment
+
+Added remappable keyboard look (arrows by default), scaled by look sensitivity and
+simulation time. Up/down remain intuitive regardless of mouse inversion. Tab
+pauses into the menu; Escape remains available even when a HUD button has focus.
+New keyboard look actions migrate old saved maps by allocating unused keys after
+preserving every existing binding. Regression tests include an old profile using
+ArrowUp for movement, explicit saved motion overrides, persistence and actual
+DiverController look/release/pause behavior.
+
+Fresh profiles inherit system prefers-reduced-motion. Saved explicit choices win.
+Reduced motion now also stops title-camera drift and main menu entrance animations.
+Improved button focus visibility and flashlight accessible labeling/state. Fixed
+the resume button's selector specificity, which previously let full-width plus
+horizontal margins overflow the settings navigation.
+
+Assessed device/controller scope: current desktop dimensions and keyboard/mouse
+support remain; no untested gamepad support is advertised. RELEASE_CHECKLIST.md
+records concrete routes and evidence for full motion, audio, keyboard/screen reader
+and foreground hardware checks. Existing ambience is retained pending listening
+evidence; additional wildlife reactions and controller implementation are follow-up
+scope rather than speculative additions. The app is not claimed fully accessible
+or release-validated from automated tests alone.
+
+Validation: controls/migration, persistence, performance, site behaviors, Cathedral,
+exploration and photography suites pass. TypeScript and targeted lint checked;
+new keyboard UI still needs hands-on review. Work remains local.
+
 ## [2026-09-15] — Encounter review and capped-display resolution recovery
 
 Reviewed the nursery and Cathedral using in-game site selection and photo mode.

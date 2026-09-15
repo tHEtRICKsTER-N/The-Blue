@@ -68,7 +68,16 @@ cycle speed persist, rather than advancing the ocean while the player is away.
 - [x] Fix adaptive-resolution recovery on displays capped at 60 Hz: stable-window probes, cooldown and pacing checks; paused/hidden/stalled frames excluded.
 - [x] Add 95th-percentile frame timing for the last active sampling window.
 - [ ] Measure representative foreground hardware before expanding optimization scope.
-- Assess controller support, device defaults and accessibility after desktop polish.
+- [x] Assess controller support, device defaults and accessibility: retain keyboard/mouse desktop support; add keyboard look, Tab-to-menu, system reduced-motion default and visible focus. Existing saved settings migrate without losing bindings.
+- [ ] Complete hands-on keyboard/screen-reader checks and representative controller evaluation before claiming broader support.
+
+## Release validation still open
+
+Implementation and automated checks are complete for the current slices. Remaining
+full-motion, audio, assistive-technology and hardware checks are recorded in
+RELEASE_CHECKLIST.md. Still reviews and simulated frame sequences do not close them.
+Controller implementation and additional wildlife responses require evidence from
+those checks before expanding scope.
 
 ## Working approach
 

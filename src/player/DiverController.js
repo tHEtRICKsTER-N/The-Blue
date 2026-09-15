@@ -10,8 +10,8 @@ export class DiverController {
     const listen=(target,type,fn)=>{target.addEventListener(type,fn);this.listeners.push(()=>target.removeEventListener(type,fn));};
     listen(window,'keydown',e=>{
       if(!this.active||e.defaultPrevented||e.metaKey||e.altKey)return;
+      if(e.code==='Escape'||e.code==='Tab'){if(e.code==='Escape')e.preventDefault();this.pause();onPause(true);return;}
       if(e.target?.closest?.('input,textarea,select,button,[contenteditable="true"],[role="slider"],[role="switch"],[role="combobox"]'))return;
-      if(e.code==='Escape'){e.preventDefault();this.pause();onPause(true);return;}
       if(Object.entries(this.controls.bindings).some(([id])=>!id.startsWith('photo')&&id!=='capture'&&matchesControl(this.controls,id,e.code))){
         e.preventDefault();this.keys.add(canonicalKey(e.code));
         if(!e.repeat&&matchesControl(this.controls,'flashlight',e.code))onFlashlight();
@@ -34,8 +34,12 @@ export class DiverController {
   setCameraMode(mode){this.rig.setMode(mode);this.onCameraChange(mode);}
   toggleCamera(){this.setCameraMode(this.rig.mode==='fps'?'tps':'fps');}
   update(dt,t){
+    if(!this.started&&this.controls.reducedMotion){this.camera.position.set(0,9,26);this.camera.rotation.set(-.075,0,0,'YXZ');return;}
     if(!this.started){this.camera.position.set(Math.sin(t*.035)*.9,9+Math.sin(t*.17)*.12,26);this.camera.rotation.set(-.075+Math.sin(t*.08)*.008,Math.sin(t*.06)*.018,0,'YXZ');return;}
     if(this.active){
+    const turn=dt*1.1*this.controls.sensitivity;
+    this.targetYaw+=(Number(this.held('lookLeft'))-Number(this.held('lookRight')))*turn;
+    this.targetPitch=T.MathUtils.clamp(this.targetPitch+(Number(this.held('lookUp'))-Number(this.held('lookDown')))*turn,-1.38,1.38);
     this.yaw=T.MathUtils.lerp(this.yaw,this.targetYaw,1-Math.exp(-dt*15));this.pitch=T.MathUtils.lerp(this.pitch,this.targetPitch,1-Math.exp(-dt*15));
     this.orientation.setFromEuler(new T.Euler(this.pitch,this.yaw,0,'YXZ'));this.forward.set(0,0,-1).applyQuaternion(this.orientation);this.right.crossVectors(this.forward,this.camera.up).normalize();this.acceleration.set(0,0,0);
     if(this.held('forward'))this.acceleration.add(this.forward);if(this.held('backward'))this.acceleration.sub(this.forward);if(this.held('right'))this.acceleration.add(this.right);if(this.held('left'))this.acceleration.sub(this.right);if(this.held('ascend'))this.acceleration.y+=1;if(this.held('descend'))this.acceleration.y-=1;

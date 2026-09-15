@@ -4,11 +4,11 @@ import { defaultControls, normalizeControls, rebindControl, loadControls, saveCo
 import { DiverController } from '../src/player/DiverController.js';
 
 let settings=rebindControl(defaultControls(),'forward',0,'KeyE');
-settings=rebindControl(settings,'forward',1,'ArrowUp');
+settings=rebindControl(settings,'forward',1,'Numpad8');
 assert.equal(heldControl(settings,'forward',new Set(['KeyW'])),false);
-assert.equal(heldControl(settings,'forward',new Set(['ArrowUp'])),true);
+assert.equal(heldControl(settings,'forward',new Set(['Numpad8'])),true);
 assert.equal(matchesControl(settings,'descend','ControlRight'),true);
-assert.equal(bindingLabel(settings,'forward'),'E / ↑');
+assert.equal(bindingLabel(settings,'forward'),'E / Num 8');
 assert.throws(()=>rebindControl(settings,'backward',0,'KeyE'),/already assigned/);
 assert.throws(()=>rebindControl(settings,'forward',0,'Escape'));
 assert.throws(()=>rebindControl(settings,'forward',0,''));
@@ -23,6 +23,16 @@ stored='{broken';assert.deepEqual(loadControls(storage).settings,defaultControls
 assert.equal(saveControls({setItem(){throw Error('blocked');}},settings),false);
 assert.equal(loadControls({getItem(){throw Error('blocked');}}).saved,false);
 
+const legacy=defaultControls();for(const id of Object.keys(legacy.bindings))if(id.startsWith('look'))delete legacy.bindings[id];
+legacy.bindings.forward=['ArrowUp','KeyE'];legacy.reducedMotion=false;
+const migrated=normalizeControls(legacy,true);
+assert.deepEqual(migrated.bindings.forward,['ArrowUp','KeyE'],'Migration keeps old primary and alternate keys');
+assert.notEqual(migrated.bindings.lookUp[0],'ArrowUp','New look keys cannot steal a saved binding');
+assert.equal(migrated.reducedMotion,false,'Explicit saved motion choice wins over the system');
+assert.equal(loadControls({getItem:()=>null},true).settings.reducedMotion,true);
+assert.equal(loadControls({getItem:()=>JSON.stringify(migrated)},true).settings.reducedMotion,false);
+saveControls(storage,migrated);assert.deepEqual(loadControls(storage).settings,migrated);
+
 // Exercise actual input listeners and movement, including remapping and pause cleanup.
 const surface=()=>{const listeners=new Map();return {addEventListener(type,fn){if(!listeners.has(type))listeners.set(type,new Set());listeners.get(type).add(fn);},removeEventListener(type,fn){listeners.get(type)?.delete(fn);},emit(type,event={}){for(const fn of listeners.get(type)||[])fn(event);}};};
 const win=surface(),doc=surface(),canvas={...surface(),focus(){this.focused=true;},requestPointerLock(){doc.pointerLockElement=this;}};
@@ -35,7 +45,7 @@ diver.setControls({...settings,sensitivity:2,invertY:true,reducedMotion:true});d
 win.emit('keydown',event('KeyW'));diver.update(.1,0);assert.equal(diver.velocity.z,0,'Old key stops moving');
 win.emit('keydown',event('KeyE'));diver.update(.1,0);assert.ok(diver.velocity.z<0,'New primary moves forward');
 win.emit('keyup',event('KeyE'));assert.equal(diver.held('forward'),false);
-win.emit('keydown',event('ArrowUp'));assert.equal(diver.held('forward'),true);
+win.emit('keydown',event('Numpad8'));assert.equal(diver.held('forward'),true);
 win.emit('keydown',event('KeyF'));win.emit('keydown',event('KeyF',{repeat:true}));assert.equal(flashes,1);
 const pitch=diver.targetPitch,yaw=diver.targetYaw;doc.emit('mousemove',{movementX:10,movementY:10});
 assert.ok(Math.abs(diver.targetYaw-yaw+.036)<1e-10);assert.ok(Math.abs(diver.targetPitch-pitch-.032)<1e-10);
@@ -46,5 +56,12 @@ win.emit('keydown',event('KeyF'));assert.equal(flashes,1,'Paused settings cannot
 diver.start();win.emit('keydown',event('ControlRight'));assert.equal(diver.held('descend'),true);
 win.emit('keyup',event('ControlRight'));assert.equal(diver.held('descend'),false);
 win.emit('keydown',event('Escape'));assert.equal(diver.active,false);
+diver.start();const beforeLook={yaw:diver.targetYaw,pitch:diver.targetPitch};
+win.emit('keydown',event('ArrowRight'));win.emit('keydown',event('ArrowUp'));diver.update(.1,1);
+assert.ok(diver.targetYaw<beforeLook.yaw);assert.ok(diver.targetPitch>beforeLook.pitch,'Up looks up even when mouse is inverted');
+win.emit('keyup',event('ArrowRight'));win.emit('keyup',event('ArrowUp'));
+const released=diver.targetYaw;diver.update(.1,1.1);assert.equal(diver.targetYaw,released);
+win.emit('keydown',event('Tab'));assert.equal(diver.active,false);assert.equal(diver.keys.size,0);
+diver.started=false;diver.update(.1,10);const still=diver.camera.position.clone();diver.update(.1,20);assert.deepEqual(diver.camera.position,still,'Reduced motion also stops title-screen drift');
 diver.dispose();delete globalThis.window;delete globalThis.document;
 console.log('PASS: remapping, conflicts, alternate keys, persistence, damaged/blocked storage, actual movement and input listeners, sensitivity, inversion, reduced sway, and pause cleanup.');
